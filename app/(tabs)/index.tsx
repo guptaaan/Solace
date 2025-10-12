@@ -1,9 +1,16 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, Text, View } from 'react-native';
 
 export default function MoodScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Mood</Text>
+      <LinearGradient
+        colors={['#10B981', '#059669']}
+        style={styles.header}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}>
+        <Text style={styles.title}>How are you feeling?</Text>
+      </LinearGradient>
     </View>
   );
 }
@@ -11,13 +18,19 @@ export default function MoodScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#F9FAFB',
   },
-  text: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: '#111827',
+  header: {
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 12,
   },
 });
