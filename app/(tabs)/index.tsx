@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { TrendingUp } from 'lucide-react-native';
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 export default function MoodScreen() {
   return (
@@ -17,6 +17,13 @@ export default function MoodScreen() {
           <Text style={styles.streakText}>7 day streak</Text>
         </View>
       </LinearGradient>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Rate your mood</Text>
+          <Text style={styles.cardSubtitle}>Quick daily check in</Text>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -48,7 +55,7 @@ const styles = StyleSheet.create({
   streakContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#ffffff33',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
@@ -59,5 +66,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 6,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 20,
   },
 });
