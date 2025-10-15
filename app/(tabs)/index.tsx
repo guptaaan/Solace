@@ -24,23 +24,31 @@ export default function MoodScreen() {
           <Text style={styles.cardSubtitle}>Quick daily check in</Text>
 
           <View style={styles.moodGrid}>
-            <TouchableOpacity style={styles.moodButton}>
-              <Smile size={32} color="#10B981" strokeWidth={2.5} />
+            <TouchableOpacity style={[styles.moodButton, styles.moodButtonGreat]}>
+              <View style={styles.moodIcon}>
+                <Smile size={32} color="#10B981" strokeWidth={2.5} />
+              </View>
               <Text style={styles.moodLabel}>Great</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.moodButton}>
-              <Heart size={32} color="#3B82F6" strokeWidth={2.5} />
+            <TouchableOpacity style={[styles.moodButton, styles.moodButtonGood]}>
+              <View style={styles.moodIcon}>
+                <Heart size={32} color="#3B82F6" strokeWidth={2.5} />
+              </View>
               <Text style={styles.moodLabel}>Good</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.moodButton}>
-              <Meh size={32} color="#F59E0B" strokeWidth={2.5} />
+            <TouchableOpacity style={[styles.moodButton, styles.moodButtonOkay]}>
+              <View style={styles.moodIcon}>
+                <Meh size={32} color="#F59E0B" strokeWidth={2.5} />
+              </View>
               <Text style={styles.moodLabel}>Okay</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.moodButton}>
-              <Frown size={32} color="#EF4444" strokeWidth={2.5} />
+            <TouchableOpacity style={[styles.moodButton, styles.moodButtonLow]}>
+              <View style={styles.moodIcon}>
+                <Frown size={32} color="#EF4444" strokeWidth={2.5} />
+              </View>
               <Text style={styles.moodLabel}>Low</Text>
             </TouchableOpacity>
           </View>
@@ -120,19 +128,33 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-  moodButton: {
+    moodButton: {
     flex: 1,
     aspectRatio: 1,
     borderRadius: 16,
     padding: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
+  },
+  moodButtonGreat: {
+    backgroundColor: '#D1FAE5',
+  },
+  moodButtonGood: {
+    backgroundColor: '#DBEAFE',
+  },
+  moodButtonOkay: {
+    backgroundColor: '#FEF3C7',
+  },
+  moodButtonLow: {
+    backgroundColor: '#FEE2E2',
+  },
+  moodIcon: {
+    marginBottom: 8,
   },
   moodLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: '#374151',
-    marginTop: 8,
   },
+  
 });
