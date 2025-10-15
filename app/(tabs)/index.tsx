@@ -1,6 +1,6 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { TrendingUp } from 'lucide-react-native';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Frown, Heart, Meh, Smile, TrendingUp } from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function MoodScreen() {
   return (
@@ -22,6 +22,28 @@ export default function MoodScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Rate your mood</Text>
           <Text style={styles.cardSubtitle}>Quick daily check in</Text>
+
+          <View style={styles.moodGrid}>
+            <TouchableOpacity style={styles.moodButton}>
+              <Smile size={32} color="#10B981" strokeWidth={2.5} />
+              <Text style={styles.moodLabel}>Great</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.moodButton}>
+              <Heart size={32} color="#3B82F6" strokeWidth={2.5} />
+              <Text style={styles.moodLabel}>Good</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.moodButton}>
+              <Meh size={32} color="#F59E0B" strokeWidth={2.5} />
+              <Text style={styles.moodLabel}>Okay</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.moodButton}>
+              <Frown size={32} color="#EF4444" strokeWidth={2.5} />
+              <Text style={styles.moodLabel}>Low</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -92,5 +114,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     marginBottom: 20,
+  },
+  moodGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  moodButton: {
+    flex: 1,
+    aspectRatio: 1,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  moodLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 8,
   },
 });
