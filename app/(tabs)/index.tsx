@@ -71,6 +71,18 @@ export default function MoodScreen() {
             ))}
           </View>
         </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Quick Actions</Text>
+          <TouchableOpacity style={styles.actionButton}>
+            <Text style={styles.actionText}>3-Minute Breathing Exercise</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton}>
+            <Text style={styles.actionText}>Grounding Technique</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionButton}>
+            <Text style={styles.actionText}>Gentle Stretch</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </View>
   );
@@ -200,5 +212,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 8,
-  }
+  },
+    actionButton: {
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  actionText: {
+    fontSize: 15,
+    color: '#374151',
+    fontWeight: '500',
+  },
 });
