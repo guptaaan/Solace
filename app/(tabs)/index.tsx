@@ -53,6 +53,24 @@ export default function MoodScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>This Week</Text>
+          <View style={styles.weekChart}>
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
+              <View key={day} style={styles.dayColumn}>
+                <View style={styles.barContainer}>
+                  <View
+                    style={[
+                      styles.bar,
+                      { height: [60, 80, 40, 70, 90, 85, 95][index] }
+                    ]}
+                  />
+                </View>
+                <Text style={styles.dayLabel}>{day}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -156,5 +174,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#374151',
   },
-  
+    weekChart: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 120,
+    marginTop: 16,
+  },
+  dayColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  barContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    width: '100%',
+    alignItems: 'center',
+  },
+  bar: {
+    width: 28,
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+  },
+  dayLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 8,
+  }
 });
