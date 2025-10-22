@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Moon, TrendingUp, Info } from 'lucide-react-native';
 
 export default function InsightsScreen() {
   return (
@@ -14,6 +15,43 @@ export default function InsightsScreen() {
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.insightCard}>
+          <View style={styles.insightHeader}>
+            <View style={styles.iconContainer}>
+              <Moon size={24} color="#6366F1" />
+            </View>
+            <View style={styles.insightTitleContainer}>
+              <Text style={styles.insightTitle}>Sleep Trend</Text>
+              <Text style={styles.insightMeta}>Last 7 days vs baseline</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricRow}>
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>7.2 hrs</Text>
+              <Text style={styles.metricLabel}>Average</Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.metric}>
+              <View style={styles.changeContainer}>
+                <TrendingUp size={16} color="#10B981" />
+                <Text style={styles.metricValuePositive}>+18 min</Text>
+              </View>
+              <Text style={styles.metricLabel}>vs baseline</Text>
+            </View>
+          </View>
+
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: '75%' }]} />
+          </View>
+
+          <View style={styles.explainer}>
+            <Info size={14} color="#6B7280" />
+            <Text style={styles.explainerText}>
+              Your sleep has improved by 4% this week. Keep up your evening routine.
+            </Text>
+          </View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -45,5 +83,101 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+  insightCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  insightTitleContainer: {
+    flex: 1,
+  },
+  insightTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  insightMeta: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  metric: {
+    flex: 1,
+  },
+  metricValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  metricValuePositive: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#10B981',
+    marginLeft: 4,
+  },
+  metricLabel: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  changeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  divider: {
+    width: 1,
+    backgroundColor: '#E5E7EB',
+    marginHorizontal: 16,
+  },
+  progressBar: {
+    height: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#10B981',
+    borderRadius: 4,
+  },
+  explainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    padding: 12,
+    borderRadius: 8,
+  },
+  explainerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#374151',
+    lineHeight: 18,
+    marginLeft: 8,
   },
 });
