@@ -124,6 +124,18 @@ export default function InsightsScreen() {
             </Text>
           </View>
         </View>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Connect Wearable</Text>
+          <Text style={styles.cardText}>
+            Sync your Fitbit to get personalized insights based on your sleep, heart rate, and activity data.
+          </Text>
+          <View style={styles.connectButton}>
+            <Text style={styles.connectButtonText}>Connect Fitbit</Text>
+          </View>
+        </View>
+
+        <View style={{ height: 24 }} />
+
 
       </ScrollView>
     </View>
@@ -258,5 +270,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#EF4444',
     marginLeft: 4,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  cardText: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  connectButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  connectButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
