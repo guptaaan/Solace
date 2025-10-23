@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Moon, TrendingUp, Info } from 'lucide-react-native';
+import { Moon, Heart, Footprints, TrendingUp, TrendingDown, Info } from 'lucide-react-native';
 
 export default function InsightsScreen() {
   return (
@@ -52,6 +52,79 @@ export default function InsightsScreen() {
             </Text>
           </View>
         </View>
+                <View style={styles.insightCard}>
+          <View style={styles.insightHeader}>
+            <View style={[styles.iconContainer, { backgroundColor: '#FEE2E2' }]}>
+              <Heart size={24} color="#EF4444" />
+            </View>
+            <View style={styles.insightTitleContainer}>
+              <Text style={styles.insightTitle}>HRV Recovery</Text>
+              <Text style={styles.insightMeta}>Heart Rate Variability</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricRow}>
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>58 ms</Text>
+              <Text style={styles.metricLabel}>7-day avg</Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.metric}>
+              <View style={styles.changeContainer}>
+                <TrendingDown size={16} color="#EF4444" />
+                <Text style={styles.metricValueNegative}>-8%</Text>
+              </View>
+              <Text style={styles.metricLabel}>vs baseline</Text>
+            </View>
+          </View>
+
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: '45%', backgroundColor: '#EF4444' }]} />
+          </View>
+
+          <View style={styles.explainer}>
+            <Info size={14} color="#6B7280" />
+            <Text style={styles.explainerText}>
+              Your HRV is lower than usual. Consider stress management or extra rest.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.insightCard}>
+          <View style={styles.insightHeader}>
+            <View style={[styles.iconContainer, { backgroundColor: '#DBEAFE' }]}>
+              <Footprints size={24} color="#3B82F6" />
+            </View>
+            <View style={styles.insightTitleContainer}>
+              <Text style={styles.insightTitle}>Activity Momentum</Text>
+              <Text style={styles.insightMeta}>Weekly progress</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricRow}>
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>32 min</Text>
+              <Text style={styles.metricLabel}>Avg active time</Text>
+            </View>
+            <View style={styles.divider} />
+            <View style={styles.metric}>
+              <Text style={styles.metricValue}>5/7 days</Text>
+              <Text style={styles.metricLabel}>Goal reached</Text>
+            </View>
+          </View>
+
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: '71%', backgroundColor: '#3B82F6' }]} />
+          </View>
+
+          <View style={styles.explainer}>
+            <Info size={14} color="#6B7280" />
+            <Text style={styles.explainerText}>
+              Great consistency! You've maintained 20+ active minutes on 5 days this week.
+            </Text>
+          </View>
+        </View>
+
       </ScrollView>
     </View>
   );
@@ -179,5 +252,11 @@ const styles = StyleSheet.create({
     color: '#374151',
     lineHeight: 18,
     marginLeft: 8,
+  },
+    metricValueNegative: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#EF4444',
+    marginLeft: 4,
   },
 });
