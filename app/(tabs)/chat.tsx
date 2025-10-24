@@ -35,6 +35,48 @@ export default function ChatScreen() {
           <Send size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
+            <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+        <View style={styles.messageLeft}>
+          <View style={styles.messageBubbleLeft}>
+            <Text style={styles.messageTextLeft}>
+              hey there I am here to support you how are you feeling today
+            </Text>
+          </View>
+          <Text style={styles.timestamp}>Just now</Text>
+        </View>
+
+        <View style={styles.messageRight}>
+          <View style={styles.messageBubbleRight}>
+            <Text style={styles.messageTextRight}>
+              I have been feeling a bit stressed lately with work
+            </Text>
+          </View>
+          <Text style={styles.timestampRight}>Just now</Text>
+        </View>
+
+        <View style={styles.messageLeft}>
+          <View style={styles.messageBubbleLeft}>
+            <Text style={styles.messageTextLeft}>
+              I understand work stress can feel overwhelming would you like to try a quick breathing exercise? It can help calm your nervous system in just 3 minutes
+            </Text>
+          </View>
+          <Text style={styles.timestamp}>Just now</Text>
+        </View>
+
+        <View style={styles.suggestionsContainer}>
+          <Text style={styles.suggestionsTitle}>Try these tools:</Text>
+          <TouchableOpacity style={styles.suggestionChip}>
+            <Text style={styles.suggestionText}>3-Minute Breathing</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.suggestionChip}>
+            <Text style={styles.suggestionText}>Grounding Exercise</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.suggestionChip}>
+            <Text style={styles.suggestionText}>Talk to a Professional</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
     </View>
   );
 }
@@ -123,5 +165,80 @@ const styles = StyleSheet.create({
     backgroundColor: '#8B5CF6',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+    messageLeft: {
+    marginBottom: 16,
+    alignItems: 'flex-start',
+  },
+  messageBubbleLeft: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderTopLeftRadius: 4,
+    padding: 14,
+    maxWidth: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  messageTextLeft: {
+    fontSize: 15,
+    color: '#111827',
+    lineHeight: 20,
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
+    marginLeft: 8,
+  },
+  messageRight: {
+    marginBottom: 16,
+    alignItems: 'flex-end',
+  },
+  messageBubbleRight: {
+    backgroundColor: '#8B5CF6',
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    padding: 14,
+    maxWidth: '80%',
+  },
+  messageTextRight: {
+    fontSize: 15,
+    color: '#FFFFFF',
+    lineHeight: 20,
+  },
+  timestampRight: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 4,
+    marginRight: 8,
+  },
+  suggestionsContainer: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  suggestionChip: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  suggestionText: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
   },
 });
