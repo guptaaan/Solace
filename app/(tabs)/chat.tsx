@@ -1,7 +1,53 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { sendMessage } from '@/utils/gemini';
 import { AlertCircle, Send, Sparkles } from 'lucide-react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+interface Message {
+  id: string;
+  text: string;
+  role: 'user' | 'assistant';
+  timestamp: string;
+}
 
 export default function ChatScreen() {
+  const [inputText, setInputText] = useState('');
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      text: 'hey there I am here to support you how are you feeling today',
+      role: 'assistant',
+      timestamp: 'Just now',
+    },
+  ]);
+
+  const handleSend = async () => {
+    if (!inputText.trim()) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputText.trim(),
+      role: 'user',
+      timestamp: 'Just now',
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputText('');
+
+    try {
+      const response = await sendMessage(userMessage.text);
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: response,
+        role: 'assistant',
+        timestamp: 'Just now',
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -22,6 +68,41 @@ export default function ChatScreen() {
       </View>
 
       <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+        {messages.map((message) => (
+          <View
+            key={message.id}
+            style={message.role === 'user' ? styles.messageRight : styles.messageLeft}>
+            <View
+              style={
+                message.role === 'user' ? styles.messageBubbleRight : styles.messageBubbleLeft
+              }>
+              <Text
+                style={
+                  message.role === 'user' ? styles.messageTextRight : styles.messageTextLeft
+                }>
+                {message.text}
+              </Text>
+            </View>
+            <Text style={message.role === 'user' ? styles.timestampRight : styles.timestamp}>
+              {message.timestamp}
+            </Text>
+          </View>
+        ))}
+
+        {messages.length === 1 && (
+          <View style={styles.suggestionsContainer}>
+            <Text style={styles.suggestionsTitle}>Try these tools:</Text>
+            <TouchableOpacity style={styles.suggestionChip}>
+              <Text style={styles.suggestionText}>3-Minute Breathing</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.suggestionChip}>
+              <Text style={styles.suggestionText}>Grounding Exercise</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.suggestionChip}>
+              <Text style={styles.suggestionText}>Talk to a Professional</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.inputContainer}>
@@ -30,56 +111,17 @@ export default function ChatScreen() {
           placeholder="Type your message..."
           placeholderTextColor="#9CA3AF"
           multiline
+          value={inputText}
+          onChangeText={setInputText}
         />
-        <TouchableOpacity style={styles.sendButton}>
+        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
           <Send size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
-            <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
-        <View style={styles.messageLeft}>
-          <View style={styles.messageBubbleLeft}>
-            <Text style={styles.messageTextLeft}>
-              hey there I am here to support you how are you feeling today
-            </Text>
-          </View>
-          <Text style={styles.timestamp}>Just now</Text>
-        </View>
-
-        <View style={styles.messageRight}>
-          <View style={styles.messageBubbleRight}>
-            <Text style={styles.messageTextRight}>
-              I have been feeling a bit stressed lately with work
-            </Text>
-          </View>
-          <Text style={styles.timestampRight}>Just now</Text>
-        </View>
-
-        <View style={styles.messageLeft}>
-          <View style={styles.messageBubbleLeft}>
-            <Text style={styles.messageTextLeft}>
-              I understand work stress can feel overwhelming would you like to try a quick breathing exercise? It can help calm your nervous system in just 3 minutes
-            </Text>
-          </View>
-          <Text style={styles.timestamp}>Just now</Text>
-        </View>
-
-        <View style={styles.suggestionsContainer}>
-          <Text style={styles.suggestionsTitle}>Try these tools:</Text>
-          <TouchableOpacity style={styles.suggestionChip}>
-            <Text style={styles.suggestionText}>3-Minute Breathing</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.suggestionChip}>
-            <Text style={styles.suggestionText}>Grounding Exercise</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.suggestionChip}>
-            <Text style={styles.suggestionText}>Talk to a Professional</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
