@@ -1,7 +1,7 @@
 import { sendMessage } from '@/utils/gemini';
 import { AlertCircle, Send, Sparkles } from 'lucide-react-native';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface Message {
   id: string;
@@ -12,6 +12,7 @@ interface Message {
 
 export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -22,7 +23,7 @@ export default function ChatScreen() {
   ]);
 
   const handleSend = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -33,6 +34,7 @@ export default function ChatScreen() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInputText('');
+    setIsLoading(true);
 
     try {
       const response = await sendMessage(userMessage.text);
@@ -43,8 +45,16 @@ export default function ChatScreen() {
         timestamp: 'Just now',
       };
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (error: any) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: error?.message || 'Sorry, something went wrong. Please try again.',
+        role: 'assistant',
+        timestamp: 'Just now',
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -89,6 +99,14 @@ export default function ChatScreen() {
           </View>
         ))}
 
+        {isLoading && (
+          <View style={styles.messageLeft}>
+            <View style={styles.messageBubbleLeft}>
+              <ActivityIndicator size="small" color="#8B5CF6" />
+            </View>
+          </View>
+        )}
+
         {messages.length === 1 && (
           <View style={styles.suggestionsContainer}>
             <Text style={styles.suggestionsTitle}>Try these tools:</Text>
@@ -113,15 +131,22 @@ export default function ChatScreen() {
           multiline
           value={inputText}
           onChangeText={setInputText}
+          editable={!isLoading}
         />
-        <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-          <Send size={20} color="#FFFFFF" />
+        <TouchableOpacity
+          style={[styles.sendButton, isLoading && styles.sendButtonDisabled]}
+          onPress={handleSend}
+          disabled={isLoading || !inputText.trim()}>
+          {isLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Send size={20} color="#FFFFFF" />
+          )}
         </TouchableOpacity>
       </View>
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
@@ -208,7 +233,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-    messageLeft: {
+  sendButtonDisabled: {
+    opacity: 0.6,
+  },
+  messageLeft: {
     marginBottom: 16,
     alignItems: 'flex-start',
   },
