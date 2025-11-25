@@ -25,6 +25,9 @@ export default function ChatScreen() {
   const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
 
+      const handleSend = async () => {
+    if (!inputText.trim() || isLoading) return;
+
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputText.trim(),
@@ -37,7 +40,14 @@ export default function ChatScreen() {
     setIsLoading(true);
 
     try {
-      const response = await sendMessage(userMessage.text);
+      const chatHistory = messages
+        .filter((msg) => msg.id !== '1')
+        .map((msg) => ({
+          role: msg.role,
+          parts: msg.text,
+        }));
+
+      const response = await sendMessage(userMessage.text, chatHistory);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: response,
