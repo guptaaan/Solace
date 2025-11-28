@@ -1,6 +1,6 @@
 import { sendMessage } from '@/utils/gemini';
 import { AlertCircle, Send, Sparkles } from 'lucide-react-native';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface Message {
@@ -13,6 +13,7 @@ interface Message {
 export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -22,17 +23,25 @@ export default function ChatScreen() {
     },
   ]);
 
-  const handleSend = async () => {
-    if (!inputText.trim() || isLoading) return;
+  const formatTime = () => {
+    const now = new Date();
+    return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
 
-      const handleSend = async () => {
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages]);
+
+  const handleSend = async () => {
     if (!inputText.trim() || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       text: inputText.trim(),
       role: 'user',
-      timestamp: 'Just now',
+      timestamp: formatTime(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
@@ -52,7 +61,7 @@ export default function ChatScreen() {
         id: (Date.now() + 1).toString(),
         text: response,
         role: 'assistant',
-        timestamp: 'Just now',
+        timestamp: formatTime(),
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error: any) {
@@ -60,7 +69,7 @@ export default function ChatScreen() {
         id: (Date.now() + 1).toString(),
         text: error?.message || 'Sorry, something went wrong. Please try again.',
         role: 'assistant',
-        timestamp: 'Just now',
+        timestamp: formatTime(),
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -87,7 +96,11 @@ export default function ChatScreen() {
         </Text>
       </View>
 
-      <ScrollView style={styles.messagesContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesContainer}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 16 }}>
         {messages.map((message) => (
           <View
             key={message.id}
