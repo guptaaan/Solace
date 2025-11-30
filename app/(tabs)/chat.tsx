@@ -77,6 +77,10 @@ export default function ChatScreen() {
     }
   };
 
+  const handleSuggestion = (suggestion: string) => {
+    setInputText(suggestion);
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -133,13 +137,19 @@ export default function ChatScreen() {
         {messages.length === 1 && (
           <View style={styles.suggestionsContainer}>
             <Text style={styles.suggestionsTitle}>Try these tools:</Text>
-            <TouchableOpacity style={styles.suggestionChip}>
+            <TouchableOpacity
+              style={styles.suggestionChip}
+              onPress={() => handleSuggestion('Tell me about breathing exercises')}>
               <Text style={styles.suggestionText}>3-Minute Breathing</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.suggestionChip}>
+            <TouchableOpacity
+              style={styles.suggestionChip}
+              onPress={() => handleSuggestion('What is a grounding exercise?')}>
               <Text style={styles.suggestionText}>Grounding Exercise</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.suggestionChip}>
+            <TouchableOpacity
+              style={styles.suggestionChip}
+              onPress={() => handleSuggestion('I need professional help')}>
               <Text style={styles.suggestionText}>Talk to a Professional</Text>
             </TouchableOpacity>
           </View>
