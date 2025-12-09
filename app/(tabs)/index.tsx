@@ -1,17 +1,51 @@
-import { LinearGradient } from 'expo-linear-gradient';
-import { Frown, Heart, Meh, Smile, TrendingUp } from 'lucide-react-native';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ENDPOINTS } from "@/constants/aws-api"; // make sure this file exists
+import { LinearGradient } from "expo-linear-gradient";
+import { Frown, Heart, Meh, Smile, TrendingUp } from "lucide-react-native";
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 export default function MoodScreen() {
+  // ---------------------------
+  //   SEND MOOD TO AWS
+  // ---------------------------
+  async function sendMood(mood: string) {
+    try {
+      const response = await fetch(ENDPOINTS.mood, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mood,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      const data = await response.json();
+      console.log("MOOD SENT ✔", data);
+
+      Alert.alert("Success", `Mood '${mood}' submitted!`);
+    } catch (err) {
+      console.log("AWS ERROR ❌", err);
+      Alert.alert("Error", "Could not submit your mood.");
+    }
+  }
+
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#10B981', '#059669']}
+        colors={["#10B981", "#059669"]}
         style={styles.header}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}>
+        end={{ x: 1, y: 1 }}
+      >
         <Text style={styles.greeting}>Good afternoon</Text>
         <Text style={styles.title}>How are you feeling?</Text>
+
         <View style={styles.streakContainer}>
           <TrendingUp size={16} color="#FFF" />
           <Text style={styles.streakText}>7 day streak</Text>
@@ -19,33 +53,46 @@ export default function MoodScreen() {
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Mood Card */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Rate your mood</Text>
           <Text style={styles.cardSubtitle}>Quick daily check in</Text>
 
           <View style={styles.moodGrid}>
-            <TouchableOpacity style={[styles.moodButton, styles.moodButtonGreat]}>
+            <TouchableOpacity
+              style={[styles.moodButton, styles.moodButtonGreat]}
+              onPress={() => sendMood("great")}
+            >
               <View style={styles.moodIcon}>
                 <Smile size={32} color="#10B981" strokeWidth={2.5} />
               </View>
               <Text style={styles.moodLabel}>Great</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.moodButton, styles.moodButtonGood]}>
+            <TouchableOpacity
+              style={[styles.moodButton, styles.moodButtonGood]}
+              onPress={() => sendMood("good")}
+            >
               <View style={styles.moodIcon}>
                 <Heart size={32} color="#3B82F6" strokeWidth={2.5} />
               </View>
               <Text style={styles.moodLabel}>Good</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.moodButton, styles.moodButtonOkay]}>
+            <TouchableOpacity
+              style={[styles.moodButton, styles.moodButtonOkay]}
+              onPress={() => sendMood("okay")}
+            >
               <View style={styles.moodIcon}>
                 <Meh size={32} color="#F59E0B" strokeWidth={2.5} />
               </View>
               <Text style={styles.moodLabel}>Okay</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.moodButton, styles.moodButtonLow]}>
+            <TouchableOpacity
+              style={[styles.moodButton, styles.moodButtonLow]}
+              onPress={() => sendMood("low")}
+            >
               <View style={styles.moodIcon}>
                 <Frown size={32} color="#EF4444" strokeWidth={2.5} />
               </View>
@@ -53,32 +100,42 @@ export default function MoodScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Weekly Chart */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>This Week</Text>
+
           <View style={styles.weekChart}>
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-              <View key={day} style={styles.dayColumn}>
-                <View style={styles.barContainer}>
-                  <View
-                    style={[
-                      styles.bar,
-                      { height: [60, 80, 40, 70, 90, 85, 95][index] }
-                    ]}
-                  />
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+              (day, index) => (
+                <View key={day} style={styles.dayColumn}>
+                  <View style={styles.barContainer}>
+                    <View
+                      style={[
+                        styles.bar,
+                        { height: [60, 80, 40, 70, 90, 85, 95][index] },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.dayLabel}>{day}</Text>
                 </View>
-                <Text style={styles.dayLabel}>{day}</Text>
-              </View>
-            ))}
+              )
+            )}
           </View>
         </View>
+
+        {/* Quick Actions */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Quick Actions</Text>
+
           <TouchableOpacity style={styles.actionButton}>
             <Text style={styles.actionText}>3-Minute Breathing Exercise</Text>
           </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionButton}>
             <Text style={styles.actionText}>Grounding Technique</Text>
           </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionButton}>
             <Text style={styles.actionText}>Gentle Stretch</Text>
           </TouchableOpacity>
@@ -88,11 +145,11 @@ export default function MoodScreen() {
   );
 }
 
+// ---------------------------
+//     STYLES
+// ---------------------------
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
+  container: { flex: 1, backgroundColor: "#F9FAFB" },
   header: {
     paddingTop: 60,
     paddingHorizontal: 24,
@@ -102,29 +159,29 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 16,
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     opacity: 0.9,
     marginBottom: 4,
   },
   title: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
     marginBottom: 12,
   },
   streakContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff33',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ffffff33",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
   },
   streakText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     marginLeft: 6,
   },
   content: {
@@ -132,11 +189,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 20,
     marginTop: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -144,77 +201,64 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 4,
   },
   cardSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 20,
   },
   moodGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 12,
   },
-    moodButton: {
+  moodButton: {
     flex: 1,
     aspectRatio: 1,
     borderRadius: 16,
     padding: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  moodButtonGreat: {
-    backgroundColor: '#D1FAE5',
-  },
-  moodButtonGood: {
-    backgroundColor: '#DBEAFE',
-  },
-  moodButtonOkay: {
-    backgroundColor: '#FEF3C7',
-  },
-  moodButtonLow: {
-    backgroundColor: '#FEE2E2',
-  },
-  moodIcon: {
-    marginBottom: 8,
-  },
+  moodButtonGreat: { backgroundColor: "#D1FAE5" },
+  moodButtonGood: { backgroundColor: "#DBEAFE" },
+  moodButtonOkay: { backgroundColor: "#FEF3C7" },
+  moodButtonLow: { backgroundColor: "#FEE2E2" },
+  moodIcon: { marginBottom: 8 },
   moodLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
   },
-    weekChart: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
+  weekChart: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
     height: 120,
     marginTop: 16,
   },
-  dayColumn: {
-    flex: 1,
-    alignItems: 'center',
-  },
+  dayColumn: { flex: 1, alignItems: "center" },
   barContainer: {
     flex: 1,
-    justifyContent: 'flex-end',
-    width: '100%',
-    alignItems: 'center',
+    justifyContent: "flex-end",
+    width: "100%",
+    alignItems: "center",
   },
   bar: {
     width: 28,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
     borderRadius: 8,
   },
   dayLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
     marginTop: 8,
   },
-    actionButton: {
-    backgroundColor: '#F3F4F6',
+  actionButton: {
+    backgroundColor: "#F3F4F6",
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 12,
@@ -222,7 +266,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 15,
-    color: '#374151',
-    fontWeight: '500',
+    color: "#374151",
+    fontWeight: "500",
   },
 });

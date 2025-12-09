@@ -1,7 +1,134 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { User, Bell, Shield, HelpCircle, Settings, LogOut, ExternalLink } from 'lucide-react-native';
+// app/(tabs)/profile.tsx
+import {
+  confirmSignUp,
+  fetchAuthSession,
+  signIn,
+  signOut,
+  signUp,
+} from "aws-amplify/auth";
+import { useRouter } from "expo-router";
+import {
+  Bell,
+  ExternalLink,
+  HelpCircle,
+  LogOut,
+  Settings,
+  Shield,
+  User,
+} from "lucide-react-native";
+import { useEffect, useState } from "react";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
+const router = useRouter();
 
 export default function ProfileScreen() {
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load current session on mount
+  useEffect(() => {
+    const loadSession = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const payload = session.tokens?.idToken?.payload;
+        if (payload && typeof payload.email === "string") {
+          setProfileEmail(payload.email);
+        } else {
+          setProfileEmail(null);
+        }
+      } catch {
+        setProfileEmail(null);
+      }
+    };
+
+    loadSession();
+  }, []);
+
+  const handleSignUp = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await signUp({
+        username: email,
+        password,
+        options: {
+          userAttributes: { email },
+        },
+      });
+      setNeedsConfirm(true);
+    } catch (e: any) {
+      setError(e?.message ?? "Sign up failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await confirmSignUp({
+        username: email,
+        confirmationCode: code,
+      });
+      setNeedsConfirm(false);
+    } catch (e: any) {
+      setError(e?.message ?? "Confirmation failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await signIn({ username: email, password });
+
+      const session = await fetchAuthSession();
+      const payload = session.tokens?.idToken?.payload;
+      const mail =
+        (payload && typeof payload.email === "string" && payload.email) || null;
+      setProfileEmail(mail);
+    } catch (e: any) {
+      setError(e?.message ?? "Sign in failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await signOut();
+      setProfileEmail(null);
+      setEmail("");
+      setPassword("");
+      setCode("");
+      setNeedsConfirm(false);
+    } catch (e: any) {
+      setError(e?.message ?? "Log out failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isLoggedIn = !!profileEmail;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -9,39 +136,124 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* TOP CARD */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <User size={40} color="#6B7280" />
           </View>
-          <Text style={styles.name}>Welcome back</Text>
-          <Text style={styles.email}>user@solace.app</Text>
+
+          <Text style={styles.name}>
+            {isLoggedIn ? "Welcome back" : "Welcome"}
+          </Text>
+
+          <Text style={styles.email}>
+            {isLoggedIn ? profileEmail : "Create an account or sign in below"}
+          </Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Account</Text>
+        {/* AUTH FORM (only when not logged in) */}
+        {!isLoggedIn && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              {needsConfirm ? "Confirm your code" : "Solace account"}
+            </Text>
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <User size={20} color="#374151" />
-            </View>
-            <Text style={styles.menuText}>Personal Information</Text>
-          </TouchableOpacity>
+            {!needsConfirm && (
+              <>
+                <TextInput
+                  placeholder="Email"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                />
+                <TextInput
+                  placeholder="Password"
+                  secureTextEntry
+                  style={styles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                />
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Bell size={20} color="#374151" />
-            </View>
-            <Text style={styles.menuText}>Notifications</Text>
-          </TouchableOpacity>
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity
+                    style={styles.primaryButton}
+                    onPress={handleSignIn}
+                    disabled={loading}
+                  >
+                    <Text style={styles.primaryButtonText}>
+                      {loading ? "..." : "Sign in"}
+                    </Text>
+                  </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Shield size={20} color="#374151" />
-            </View>
-            <Text style={styles.menuText}>Privacy & Security</Text>
-          </TouchableOpacity>
-        </View>
+                  <TouchableOpacity
+                    style={styles.secondaryButton}
+                    onPress={handleSignUp}
+                    disabled={loading}
+                  >
+                    <Text style={styles.secondaryButtonText}>
+                      {loading ? "..." : "Sign up"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
 
+            {needsConfirm && (
+              <>
+                <TextInput
+                  placeholder="Verification code"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                  value={code}
+                  onChangeText={setCode}
+                />
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  onPress={handleConfirm}
+                  disabled={loading}
+                >
+                  <Text style={styles.primaryButtonText}>
+                    {loading ? "..." : "Confirm code"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {error && <Text style={styles.errorText}>{error}</Text>}
+          </View>
+        )}
+
+        {/* ACCOUNT SECTION (only when logged in) */}
+        {isLoggedIn && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account</Text>
+
+            <TouchableOpacity style={styles.menuItem}>
+              <View style={styles.menuIcon}>
+                <User size={20} color="#374151" />
+              </View>
+              <Text style={styles.menuText}>Personal Information</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem}>
+              <View style={styles.menuIcon}>
+                <Bell size={20} color="#374151" />
+              </View>
+              <Text style={styles.menuText}>Notifications</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItem}>
+              <View style={styles.menuIcon}>
+                <Shield size={20} color="#374151" />
+              </View>
+              <Text style={styles.menuText}>Privacy & Security</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* RESOURCES SECTION */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Connections</Text>
 
@@ -52,9 +264,11 @@ export default function ProfileScreen() {
                 <Text style={styles.badgeText}>Not Connected</Text>
               </View>
             </View>
+
             <Text style={styles.connectionText}>
-              Connect your Fitbit to sync sleep heart rate and activity data for personalized insights.
+              Connect your Fitbit to sync sleep, heart rate, and activity data.
             </Text>
+
             <TouchableOpacity style={styles.connectButton}>
               <Text style={styles.connectButtonText}>Connect Now</Text>
             </TouchableOpacity>
@@ -64,7 +278,10 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Resources</Text>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/find-clinicians")}
+          >
             <View style={styles.menuIcon}>
               <ExternalLink size={20} color="#374151" />
             </View>
@@ -86,12 +303,20 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.section}>
-          <TouchableOpacity style={styles.logoutButton}>
-            <LogOut size={20} color="#EF4444" />
-            <Text style={styles.logoutText}>Log Out</Text>
-          </TouchableOpacity>
-        </View>
+        {isLoggedIn && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              disabled={loading}
+            >
+              <LogOut size={20} color="#EF4444" />
+              <Text style={styles.logoutText}>
+                {loading ? "..." : "Log Out"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.footer}>
           <Text style={styles.footerText}>SOLACE v1.0.0</Text>
@@ -105,171 +330,142 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
+  container: { flex: 1, backgroundColor: "#F9FAFB" },
   header: {
     paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  content: {
-    flex: 1,
-  },
+  title: { fontSize: 28, fontWeight: "700", color: "#111827" },
+  content: { flex: 1 },
   profileCard: {
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
     paddingVertical: 32,
     marginHorizontal: 20,
     marginTop: 20,
     borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
     elevation: 2,
   },
   avatar: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 16,
   },
-  name: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  email: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  section: {
-    marginTop: 24,
-    marginHorizontal: 20,
-  },
+  name: { fontSize: 20, fontWeight: "700", marginBottom: 4, color: "#111827" },
+  email: { fontSize: 14, color: "#6B7280" },
+  section: { marginTop: 24, marginHorizontal: 20 },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 12,
-    marginLeft: 4,
+  },
+  input: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    marginBottom: 10,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: "#10B981",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: "#F3F4F6",
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#111827",
+  },
+  errorText: {
+    marginTop: 8,
+    color: "#B91C1C",
+    fontSize: 13,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 12,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
     elevation: 1,
   },
   menuIcon: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
-  menuText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#374151',
-  },
+  menuText: { flex: 1, fontSize: 15, fontWeight: "500", color: "#374151" },
   connectionCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     padding: 20,
     borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
     elevation: 1,
   },
-  connectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  connectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
-  },
+  connectionHeader: { flexDirection: "row", justifyContent: "space-between" },
+  connectionTitle: { fontSize: 16, fontWeight: "700", color: "#111827" },
   badge: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: "#FEE2E2",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
   },
-  badgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#92400E',
-  },
-  connectionText: {
-    fontSize: 14,
-    color: '#6B7280',
-    lineHeight: 20,
-    marginBottom: 16,
-  },
+  badgeText: { fontSize: 12, fontWeight: "600", color: "#B91C1C" },
+  connectionText: { fontSize: 14, color: "#6B7280", marginVertical: 12 },
   connectButton: {
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
     paddingVertical: 12,
     borderRadius: 10,
-    alignItems: 'center',
+    alignItems: "center",
+    width: "100%",
+    marginTop: 10,
   },
-  connectButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
+  connectButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
   logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    justifyContent: "center",
     paddingVertical: 16,
     borderRadius: 12,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: "#FEE2E2",
   },
-  logoutText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#EF4444',
-    marginLeft: 8,
-  },
-  footer: {
-    alignItems: 'center',
-    marginTop: 32,
-    paddingHorizontal: 20,
-  },
-  footerText: {
-    fontSize: 13,
-    color: '#9CA3AF',
-    marginBottom: 4,
-  },
+  logoutText: { marginLeft: 8, fontSize: 15, fontWeight: "600", color: "#EF4444" },
+  footer: { alignItems: "center", marginTop: 32, paddingBottom: 20 },
+  footerText: { fontSize: 13, color: "#9CA3AF" },
 });
