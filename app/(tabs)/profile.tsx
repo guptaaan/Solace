@@ -1,29 +1,29 @@
 // app/(tabs)/profile.tsx
 import {
-  confirmSignUp,
-  fetchAuthSession,
-  signIn,
-  signOut,
-  signUp,
+    confirmSignUp,
+    fetchAuthSession,
+    signIn,
+    signOut,
+    signUp,
 } from "aws-amplify/auth";
 import { useRouter } from "expo-router";
 import {
-  Bell,
-  ExternalLink,
-  HelpCircle,
-  LogOut,
-  Settings,
-  Shield,
-  User,
+    Bell,
+    ExternalLink,
+    HelpCircle,
+    LogOut,
+    Settings,
+    Shield,
+    User,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 
 const router = useRouter();
@@ -151,7 +151,7 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
-        {/* AUTH FORM (only when not logged in) */}
+        {/* AUTH FORM (only when not logged in) this part does the authentication for our app */}
         {!isLoggedIn && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
