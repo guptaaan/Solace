@@ -5,7 +5,6 @@ import "aws-amplify/auth";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { awsConfig } from "../aws-config";
-
 // Configure Amplify ONCE
 Amplify.configure(awsConfig);
 
