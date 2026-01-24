@@ -1,11 +1,3 @@
-// app/(tabs)/profile.tsx
-import {
-  confirmSignUp,
-  fetchAuthSession,
-  signIn,
-  signOut,
-  signUp,
-} from "aws-amplify/auth";
 import { useRouter } from "expo-router";
 import {
   Bell,
@@ -26,6 +18,14 @@ import {
   View,
 } from "react-native";
 
+import { auth } from "@/constants/firebase";
+import {
+  createUserWithEmailAndPassword,
+  signOut as fbSignOut,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
+
 export default function ProfileScreen() {
   const router = useRouter();
 
@@ -33,124 +33,53 @@ export default function ProfileScreen() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [needsConfirm, setNeedsConfirm] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // LOAD CURRENT SESSION
+  // ✅ Keeps user logged in across reloads
   useEffect(() => {
-    const loadSession = async () => {
-      try {
-        const session = await fetchAuthSession();
-        console.log("SESSION >>>", session);
-
-        const payload = session.tokens?.idToken?.payload;
-        if (payload && typeof payload.email === "string") {
-          setProfileEmail(payload.email);
-        } else {
-          setProfileEmail(null);
-        }
-      } catch (e) {
-        console.log("SESSION ERROR >>>", e);
-        setProfileEmail(null);
-      }
-    };
-
-    loadSession();
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setProfileEmail(user?.email ?? null);
+    });
+    return unsub;
   }, []);
 
-  // SIGN UP
   const handleSignUp = async () => {
     setError(null);
     setLoading(true);
-    console.log("SIGNUP REQUEST >>>", email);
 
     try {
-      const res = await signUp({
-        username: email,
-        password,
-        options: { userAttributes: { email } },
-      });
-
-      console.log("SIGNUP SUCCESS >>>", res);
-      setNeedsConfirm(true);
+      await createUserWithEmailAndPassword(auth, email.trim(), password);
     } catch (e: any) {
-      console.log("SIGNUP ERROR >>>", e);
       setError(e?.message ?? "Sign up failed");
     } finally {
       setLoading(false);
     }
   };
 
-  // CONFIRM CODE
-  const handleConfirm = async () => {
-    setError(null);
-    setLoading(true);
-    console.log("CONFIRM REQUEST >>> CODE:", code);
-
-    try {
-      const res = await confirmSignUp({
-        username: email,
-        confirmationCode: code,
-      });
-
-      console.log("CONFIRM SUCCESS >>>", res);
-      setNeedsConfirm(false);
-    } catch (e: any) {
-      console.log("CONFIRM ERROR >>>", e);
-      setError(e?.message ?? "Confirmation failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // SIGN IN
   const handleSignIn = async () => {
     setError(null);
     setLoading(true);
-    console.log("SIGN-IN REQUEST >>>", { email });
 
     try {
-      const result = await signIn({
-        username: email,
-        password,
-      });
-
-      console.log("SIGN-IN SUCCESS >>>", result);
-
-      const session = await fetchAuthSession();
-      const payload = session.tokens?.idToken?.payload;
-
-      const mail =
-        (payload && typeof payload.email === "string" && payload.email) || null;
-
-      setProfileEmail(mail);
+      await signInWithEmailAndPassword(auth, email.trim(), password);
     } catch (e: any) {
-      console.log("SIGN-IN ERROR >>>", e);
-      setError(e?.message ?? "An unknown error has occurred.");
+      setError(e?.message ?? "Sign in failed");
     } finally {
       setLoading(false);
     }
   };
 
-  // LOGOUT
   const handleLogout = async () => {
     setError(null);
     setLoading(true);
-    console.log("LOGOUT REQUEST >>>");
 
     try {
-      await signOut();
-      console.log("LOGOUT SUCCESS");
-
-      setProfileEmail(null);
+      await fbSignOut(auth);
       setEmail("");
       setPassword("");
-      setCode("");
-      setNeedsConfirm(false);
     } catch (e: any) {
-      console.log("LOGOUT ERROR >>>", e);
       setError(e?.message ?? "Logout failed");
     } finally {
       setLoading(false);
@@ -158,8 +87,6 @@ export default function ProfileScreen() {
   };
 
   const isLoggedIn = !!profileEmail;
-
-  // 🔥🔥 NOTHING BELOW THIS LINE WAS CHANGED — FULL UI PRESERVED 🔥🔥
 
   return (
     <View style={styles.container}>
@@ -186,72 +113,46 @@ export default function ProfileScreen() {
         {/* AUTH SECTION */}
         {!isLoggedIn && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              {needsConfirm ? "Confirm your code" : "Solace account"}
-            </Text>
+            <Text style={styles.sectionTitle}>Solace account</Text>
 
-            {!needsConfirm && (
-              <>
-                <TextInput
-                  placeholder="Email"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                />
-                <TextInput
-                  placeholder="Password"
-                  secureTextEntry
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                />
+            <TextInput
+              placeholder="Email"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+              value={email}
+              onChangeText={setEmail}
+            />
 
-                <View style={styles.buttonRow}>
-                  <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={handleSignIn}
-                    disabled={loading}
-                  >
-                    <Text style={styles.primaryButtonText}>
-                      {loading ? "..." : "Sign in"}
-                    </Text>
-                  </TouchableOpacity>
+            <TextInput
+              placeholder="Password"
+              secureTextEntry
+              style={styles.input}
+              value={password}
+              onChangeText={setPassword}
+            />
 
-                  <TouchableOpacity
-                    style={styles.secondaryButton}
-                    onPress={handleSignUp}
-                    disabled={loading}
-                  >
-                    <Text style={styles.secondaryButtonText}>
-                      {loading ? "..." : "Sign up"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={handleSignIn}
+                disabled={loading}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {loading ? "..." : "Sign in"}
+                </Text>
+              </TouchableOpacity>
 
-            {needsConfirm && (
-              <>
-                <TextInput
-                  placeholder="Verification code"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                  value={code}
-                  onChangeText={setCode}
-                />
-                <TouchableOpacity
-                  style={styles.primaryButton}
-                  onPress={handleConfirm}
-                  disabled={loading}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {loading ? "..." : "Confirm code"}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={handleSignUp}
+                disabled={loading}
+              >
+                <Text style={styles.secondaryButtonText}>
+                  {loading ? "..." : "Sign up"}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             {error && <Text style={styles.errorText}>{error}</Text>}
           </View>
@@ -364,7 +265,6 @@ export default function ProfileScreen() {
   );
 }
 
-// ---------- STYLES (UNCHANGED) ----------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F9FAFB" },
   header: {
@@ -501,7 +401,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#FEE2E2",
   },
-  logoutText: { marginLeft: 8, fontSize: 15, fontWeight: "600", color: "#EF4444" },
+  logoutText: {
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#EF4444",
+  },
   footer: { alignItems: "center", marginTop: 32, paddingBottom: 20 },
   footerText: { fontSize: 13, color: "#9CA3AF" },
 });

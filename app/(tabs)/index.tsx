@@ -119,7 +119,7 @@ export default function MoodScreen() {
                   </View>
                   <Text style={styles.dayLabel}>{day}</Text>
                 </View>
-              )
+              ),
             )}
           </View>
         </View>
