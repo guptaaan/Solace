@@ -5,4 +5,5 @@ export const ENDPOINTS = {
   insights: `${API_BASE_URL}/insights`,
   chat: `${API_BASE_URL}/chat`,
   doctors: `${API_BASE_URL}/doctors`,
+  fitbit: `${API_BASE_URL}/fitbit`,
 };

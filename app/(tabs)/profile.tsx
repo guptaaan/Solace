@@ -10,6 +10,8 @@ import {
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +21,11 @@ import {
 } from "react-native";
 
 import { auth } from "@/constants/firebase";
+import {
+  connectFitbit,
+  disconnectFitbit,
+  isFitbitConnected,
+} from "@/utils/fitbit-auth";
 import {
   createUserWithEmailAndPassword,
   signOut as fbSignOut,
@@ -36,14 +43,24 @@ export default function ProfileScreen() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fitbitConnected, setFitbitConnected] = useState(false);
+  const [fitbitLoading, setFitbitLoading] = useState(false);
 
-  // ✅ Keeps user logged in across reloads
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       setProfileEmail(user?.email ?? null);
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    checkFitbitStatus();
+  }, []);
+
+  const checkFitbitStatus = async () => {
+    const connected = await isFitbitConnected();
+    setFitbitConnected(connected);
+  };
 
   const handleSignUp = async () => {
     setError(null);
@@ -83,6 +100,49 @@ export default function ProfileScreen() {
       setError(e?.message ?? "Logout failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFitbitConnect = async () => {
+    if (fitbitConnected) {
+      setFitbitLoading(true);
+      try {
+        await disconnectFitbit();
+        setFitbitConnected(false);
+        Alert.alert("Success", "Fitbit disconnected successfully");
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to disconnect Fitbit");
+      } finally {
+        setFitbitLoading(false);
+      }
+    } else {
+      setFitbitLoading(true);
+      try {
+        const success = await connectFitbit();
+        if (success) {
+          setFitbitConnected(true);
+          Alert.alert("Success", "Fitbit connected successfully!");
+          
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() - 30);
+          const endDateStr = endDate.toISOString().split("T")[0];
+          const startDateStr = startDate.toISOString().split("T")[0];
+          
+          try {
+            const data = await getWellnessData(startDateStr, endDateStr);
+            await syncFitbitDataToAWS("test-user", data);
+          } catch (syncError) {
+            console.error("Failed to sync initial data:", syncError);
+          }
+        } else {
+          Alert.alert("Cancelled", "Fitbit connection was cancelled");
+        }
+      } catch (e: any) {
+        Alert.alert("Error", e?.message ?? "Failed to connect Fitbit");
+      } finally {
+        setFitbitLoading(false);
+      }
     }
   };
 
@@ -193,17 +253,45 @@ export default function ProfileScreen() {
           <View style={styles.connectionCard}>
             <View style={styles.connectionHeader}>
               <Text style={styles.connectionTitle}>Fitbit</Text>
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>Not Connected</Text>
+              <View
+                style={[
+                  styles.badge,
+                  fitbitConnected && { backgroundColor: "#D1FAE5" },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.badgeText,
+                    fitbitConnected && { color: "#065F46" },
+                  ]}
+                >
+                  {fitbitConnected ? "Connected" : "Not Connected"}
+                </Text>
               </View>
             </View>
 
             <Text style={styles.connectionText}>
-              Connect your Fitbit to sync sleep, heart rate, and activity data.
+              {fitbitConnected
+                ? "Your Fitbit is connected. Sleep, heart rate, and activity data will sync automatically."
+                : "Connect your Fitbit to sync sleep, heart rate, and activity data."}
             </Text>
 
-            <TouchableOpacity style={styles.connectButton}>
-              <Text style={styles.connectButtonText}>Connect Now</Text>
+            <TouchableOpacity
+              style={[
+                styles.connectButton,
+                fitbitConnected && styles.disconnectButton,
+                fitbitLoading && styles.connectButtonDisabled,
+              ]}
+              onPress={handleFitbitConnect}
+              disabled={fitbitLoading}
+            >
+              {fitbitLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.connectButtonText}>
+                  {fitbitConnected ? "Disconnect" : "Connect Now"}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -390,6 +478,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     width: "100%",
     marginTop: 10,
+  },
+  disconnectButton: {
+    backgroundColor: "#EF4444",
+  },
+  connectButtonDisabled: {
+    opacity: 0.6,
   },
   connectButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
   logoutButton: {
