@@ -21,11 +21,12 @@ import {
 } from "react-native";
 
 import { auth } from "@/constants/firebase";
-import { syncFitbitDataToAWS } from "@/utils/aws-fitbit";
+import { getFitbitDataFromAWS, syncFitbitDataToAWS } from "@/utils/aws-fitbit";
 import { getWellnessData } from "@/utils/fitbit-api";
 import {
   connectFitbit,
   disconnectFitbit,
+  getFitbitStoredUserId,
   isFitbitConnected,
 } from "@/utils/fitbit-auth";
 import {
@@ -133,7 +134,10 @@ export default function ProfileScreen() {
           
           try {
             const data = await getWellnessData(startDateStr, endDateStr);
-            await syncFitbitDataToAWS("test-user", data);
+            const userId = (await getFitbitStoredUserId()) || "test-user";
+            const write = await syncFitbitDataToAWS(userId, data);
+            const read = await getFitbitDataFromAWS(userId);
+            console.log("AWS Fitbit sync ok", { userId, write, readRecords: read.length });
           } catch (syncError) {
             console.error("Failed to sync initial data:", syncError);
           }

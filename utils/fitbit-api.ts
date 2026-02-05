@@ -200,15 +200,26 @@ export async function getWellnessData(
   endDate: string
 ): Promise<WellnessData[]> {
   try {
-    const [sleepData, heartRateData, hrvData, activityData] = await Promise.all([
-      getSleepData(startDate, endDate).catch(() => null),
-      getRestingHeartRateData(startDate, endDate).catch(() => null),
-      getHeartRateVariabilityData(startDate, endDate).catch(() => null),
-      getActivityData(startDate, endDate).catch(() => null),
+    const results = await Promise.allSettled([
+      getSleepData(startDate, endDate),
+      getRestingHeartRateData(startDate, endDate),
+      getHeartRateVariabilityData(startDate, endDate),
+      getActivityData(startDate, endDate),
     ]);
 
+    const sleepData = results[0].status === 'fulfilled' ? results[0].value : null;
+    const heartRateData = results[1].status === 'fulfilled' ? results[1].value : null;
+    const hrvData = results[2].status === 'fulfilled' ? results[2].value : null;
+    const activityData = results[3].status === 'fulfilled' ? results[3].value : null;
+
+    const errors = results
+      .map((r) => (r.status === 'rejected' ? r.reason : null))
+      .filter(Boolean);
 
     const dateMap = new Map<string, WellnessData>();
+    listDates(startDate, endDate).forEach((date) => {
+      dateMap.set(date, { date });
+    });
 
 
     if (sleepData?.sleep) {
@@ -272,9 +283,21 @@ export async function getWellnessData(
       });
     }
 
-    return Array.from(dateMap.values()).sort((a, b) =>
+    const out = Array.from(dateMap.values()).sort((a, b) =>
       a.date.localeCompare(b.date)
     );
+    const hasAny =
+      out.some((d) => (d.sleep?.hours || 0) > 0) ||
+      out.some((d) => (d.heartRate?.resting || 0) > 0) ||
+      out.some((d) => (d.heartRate?.hrv || 0) > 0) ||
+      out.some((d) => (d.activity?.activeMinutes || 0) > 0) ||
+      out.some((d) => (d.activity?.steps || 0) > 0);
+
+    if (!hasAny && errors.length) {
+      throw errors[0];
+    }
+
+    return out;
   } catch (error) {
     console.error('Error fetching wellness data:', error);
     throw error;

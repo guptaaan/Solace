@@ -4,7 +4,7 @@ import { WellnessData } from './fitbit-api';
 export async function syncFitbitDataToAWS(
   userId: string,
   wellnessData: WellnessData[]
-): Promise<void> {
+): Promise<{ ok: true; status: number; body: any }>{
   try {
     const response = await fetch(ENDPOINTS.fitbit, {
       method: 'POST',
@@ -22,6 +22,14 @@ export async function syncFitbitDataToAWS(
       const error = await response.text();
       throw new Error(`Failed to sync Fitbit data: ${error}`);
     }
+    const text = await response.text();
+    let body: any = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    return { ok: true, status: response.status, body };
   } catch (error) {
     console.error('Error syncing Fitbit data to AWS:', error);
     throw error;

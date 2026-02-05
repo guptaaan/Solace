@@ -1,31 +1,31 @@
-import { syncFitbitDataToAWS } from "@/utils/aws-fitbit";
+import { getFitbitDataFromAWS, syncFitbitDataToAWS } from "@/utils/aws-fitbit";
 import {
-    calculateTrends,
-    getWellnessData,
-    type TrendAnalysis,
+  calculateTrends,
+  getWellnessData,
+  type TrendAnalysis,
 } from "@/utils/fitbit-api";
-import { isFitbitConnected } from "@/utils/fitbit-auth";
+import { getFitbitStoredUserId, isFitbitConnected } from "@/utils/fitbit-auth";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
-    Footprints,
-    Heart,
-    Info,
-    Moon,
-    RefreshCw,
-    TrendingDown,
-    TrendingUp,
+  Footprints,
+  Heart,
+  Info,
+  Moon,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react-native";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function InsightsScreen() {
@@ -65,7 +65,10 @@ export default function InsightsScreen() {
       setTrends(calculatedTrends);
 
       try {
-        await syncFitbitDataToAWS("test-user", data);
+        const userId = (await getFitbitStoredUserId()) || "test-user";
+        const write = await syncFitbitDataToAWS(userId, data);
+        const read = await getFitbitDataFromAWS(userId);
+        console.log("AWS Fitbit sync ok", { userId, write, readRecords: read.length });
       } catch (syncError) {
         console.error("Failed to sync to AWS:", syncError);
       }
@@ -88,6 +91,37 @@ export default function InsightsScreen() {
 
   const getTrendForMetric = (metric: string): TrendAnalysis | undefined => {
     return trends.find((t) => t.metric === metric);
+  };
+
+  const avg = (values: number[]) => {
+    if (!values.length) return 0;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  };
+
+  const computeFallbackTrend = (metric: string): TrendAnalysis => {
+    const data: any[] = Array.isArray(wellnessData) ? wellnessData : [];
+    const last7 = data.slice(-7);
+    const last30 = data.slice(-30);
+
+    const pick = (d: any) => {
+      if (metric === "sleep") return d?.sleep?.hours || 0;
+      if (metric === "hrv") return d?.heartRate?.hrv || 0;
+      if (metric === "restingHeartRate") return d?.heartRate?.resting || 0;
+      if (metric === "activity") return d?.activity?.activeMinutes || 0;
+      return 0;
+    };
+
+    const v7 = last7.map(pick).filter((v) => v > 0);
+    const v30 = last30.map(pick).filter((v) => v > 0);
+    const a7 = avg(v7);
+    const a30 = avg(v30);
+    const change = a30 > 0 ? ((a7 - a30) / a30) * 100 : 0;
+    const changeType = change > 5 ? "increase" : change < -5 ? "decrease" : "stable";
+    return { metric, current7DayAvg: a7, baseline30DayAvg: a30, change, changeType };
+  };
+
+  const getTrendOrFallback = (metric: string): TrendAnalysis => {
+    return getTrendForMetric(metric) || computeFallbackTrend(metric);
   };
 
   const formatChange = (change: number): string => {
@@ -147,8 +181,7 @@ export default function InsightsScreen() {
           <>
             {/* SLEEP INSIGHT */}
             {(() => {
-              const sleepTrend = getTrendForMetric("sleep");
-              if (!sleepTrend) return null;
+              const sleepTrend = getTrendOrFallback("sleep");
 
               const progress = Math.min(
                 100,
@@ -228,7 +261,9 @@ export default function InsightsScreen() {
                   <View style={styles.explainer}>
                     <Info size={14} color="#6B7280" />
                     <Text style={styles.explainerText}>
-                      {sleepTrend.changeType === "increase"
+                      {sleepTrend.current7DayAvg <= 0
+                        ? "No sleep data found yet. Make sure your Fitbit has recent sleep logs and the app has Sleep scope access."
+                        : sleepTrend.changeType === "increase"
                         ? `Your sleep has improved by ${Math.abs(sleepTrend.change).toFixed(1)}% this week. Keep up your evening routine.`
                         : sleepTrend.changeType === "decrease"
                         ? `Your sleep is ${Math.abs(sleepTrend.change).toFixed(1)}% lower than your baseline. Consider improving your sleep hygiene.`
@@ -241,8 +276,7 @@ export default function InsightsScreen() {
 
             {/* HRV INSIGHT */}
             {(() => {
-              const hrvTrend = getTrendForMetric("hrv");
-              if (!hrvTrend) return null;
+              const hrvTrend = getTrendOrFallback("hrv");
 
               const progress = Math.min(
                 100,
@@ -319,7 +353,9 @@ export default function InsightsScreen() {
                   <View style={styles.explainer}>
                     <Info size={14} color="#6B7280" />
                     <Text style={styles.explainerText}>
-                      {hrvTrend.changeType === "increase"
+                      {hrvTrend.current7DayAvg <= 0
+                        ? "No HRV data found yet. Some accounts/devices don’t expose HRV daily RMSSD via API; if so, we can hide this card or compute recovery from heart rate instead."
+                        : hrvTrend.changeType === "increase"
                         ? `Your HRV has improved by ${Math.abs(hrvTrend.change).toFixed(1)}%. Great recovery!`
                         : hrvTrend.changeType === "decrease"
                         ? `Your HRV is ${Math.abs(hrvTrend.change).toFixed(1)}% lower than usual. Consider rest or relaxation techniques.`
@@ -332,8 +368,7 @@ export default function InsightsScreen() {
 
             {/* RESTING HEART RATE INSIGHT */}
             {(() => {
-              const rhrTrend = getTrendForMetric("restingHeartRate");
-              if (!rhrTrend) return null;
+              const rhrTrend = getTrendOrFallback("restingHeartRate");
 
               const progress = Math.min(
                 100,
@@ -408,7 +443,9 @@ export default function InsightsScreen() {
                   <View style={styles.explainer}>
                     <Info size={14} color="#6B7280" />
                     <Text style={styles.explainerText}>
-                      {rhrTrend.changeType === "increase"
+                      {rhrTrend.current7DayAvg <= 0
+                        ? "No resting heart rate data found yet. Make sure Heart Rate scope is granted and your device has recent heart rate logs."
+                        : rhrTrend.changeType === "increase"
                         ? `Your resting heart rate has decreased by ${Math.abs(rhrTrend.change).toFixed(1)}%. This indicates improved cardiovascular fitness.`
                         : rhrTrend.changeType === "decrease"
                         ? `Your resting heart rate has increased by ${Math.abs(rhrTrend.change).toFixed(1)}%. Consider more rest and recovery.`
@@ -421,8 +458,7 @@ export default function InsightsScreen() {
 
             {/* ACTIVITY INSIGHT */}
             {(() => {
-              const activityTrend = getTrendForMetric("activity");
-              if (!activityTrend) return null;
+              const activityTrend = getTrendOrFallback("activity");
 
               const progress = Math.min(
                 100,
@@ -497,7 +533,9 @@ export default function InsightsScreen() {
                   <View style={styles.explainer}>
                     <Info size={14} color="#6B7280" />
                     <Text style={styles.explainerText}>
-                      {activityTrend.changeType === "increase"
+                      {activityTrend.current7DayAvg <= 0
+                        ? "No activity data found yet. Make sure Activity scope is granted and your Fitbit has recent activity logs."
+                        : activityTrend.changeType === "increase"
                         ? `Great progress! Your activity has increased by ${Math.abs(activityTrend.change).toFixed(1)}% this week.`
                         : activityTrend.changeType === "decrease"
                         ? `Your activity is ${Math.abs(activityTrend.change).toFixed(1)}% lower than your baseline. Try to stay active!`

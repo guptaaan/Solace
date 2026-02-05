@@ -186,6 +186,10 @@ export async function isFitbitConnected(): Promise<boolean> {
   return !!accessToken;
 }
 
+export async function getFitbitStoredUserId(): Promise<string | null> {
+  return AsyncStorage.getItem(FITBIT_STORAGE_KEYS.userId);
+}
+
 export async function connectFitbit(): Promise<boolean> {
   try {
     const redirectUri = getRedirectUri();
