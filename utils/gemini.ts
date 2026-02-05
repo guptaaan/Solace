@@ -21,6 +21,7 @@ reply with exactly:
 "Sorry this is out of scope. I can only help with mental health related topics."
 
 Do not answer anything else.
+IN ALL THE ANSWERS DO NOT USE STYLING LIKE BOLD OR ITALICS.
 `;
 
 export async function sendMessage(
