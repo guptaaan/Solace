@@ -7,6 +7,15 @@ import 'react-native-get-random-values';
 
 WebBrowser.maybeCompleteAuthSession();
 
+function getRedirectUri(): string {
+  if (FITBIT_CONFIG.redirectUri) return FITBIT_CONFIG.redirectUri;
+  if (Platform.OS === 'web') {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return origin ? `${origin}/` : '';
+  }
+  return Linking.createURL('');
+}
+
 function base64Encode(str: string): string {
   if (Platform.OS === 'web' && typeof btoa !== 'undefined') {
     return btoa(str);
@@ -48,7 +57,7 @@ export function getFitbitAuthUrl(redirectUri?: string): string {
   return `${FITBIT_CONFIG.authorizationUri}?${params.toString()}`;
 }
 
-async function exchangeCodeForToken(code: string): Promise<FitbitTokens> {
+async function exchangeCodeForToken(code: string, redirectUri: string): Promise<FitbitTokens> {
   const credentials = `${FITBIT_CONFIG.clientId}:${FITBIT_CONFIG.clientSecret}`;
   const base64Credentials = base64Encode(credentials);
 
@@ -61,7 +70,7 @@ async function exchangeCodeForToken(code: string): Promise<FitbitTokens> {
     body: new URLSearchParams({
       client_id: FITBIT_CONFIG.clientId || '',
       grant_type: 'authorization_code',
-      redirect_uri: FITBIT_CONFIG.redirectUri || '',
+      redirect_uri: redirectUri,
       code,
     }).toString(),
   }).catch((error) => {
@@ -179,9 +188,9 @@ export async function isFitbitConnected(): Promise<boolean> {
 
 export async function connectFitbit(): Promise<boolean> {
   try {
-    const redirectUri = FITBIT_CONFIG.redirectUri;
+    const redirectUri = getRedirectUri();
     const authUrl = getFitbitAuthUrl(redirectUri);
-    
+
     const result = await WebBrowser.openAuthSessionAsync(
       authUrl,
       redirectUri
@@ -189,7 +198,7 @@ export async function connectFitbit(): Promise<boolean> {
 
     if (result.type === 'success' && result.url) {
       let code: string | null = null;
-      
+
       if (Platform.OS === 'web') {
         const url = new URL(result.url);
         code = url.searchParams.get('code');
@@ -199,7 +208,7 @@ export async function connectFitbit(): Promise<boolean> {
       }
 
       if (code) {
-        const tokens = await exchangeCodeForToken(code);
+        const tokens = await exchangeCodeForToken(code, redirectUri);
         await saveFitbitTokens(tokens);
         return true;
       }
@@ -211,6 +220,7 @@ export async function connectFitbit(): Promise<boolean> {
     throw error;
   }
 }
+
 
 export async function disconnectFitbit(): Promise<void> {
   await clearFitbitTokens();

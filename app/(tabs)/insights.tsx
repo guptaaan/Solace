@@ -1,15 +1,105 @@
-import { LinearGradient } from "expo-linear-gradient";
+import { syncFitbitDataToAWS } from "@/utils/aws-fitbit";
 import {
-  Footprints,
-  Heart,
-  Info,
-  Moon,
-  TrendingDown,
-  TrendingUp,
+    calculateTrends,
+    getWellnessData,
+    type TrendAnalysis,
+} from "@/utils/fitbit-api";
+import { isFitbitConnected } from "@/utils/fitbit-auth";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import {
+    Footprints,
+    Heart,
+    Info,
+    Moon,
+    RefreshCw,
+    TrendingDown,
+    TrendingUp,
 } from "lucide-react-native";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 export default function InsightsScreen() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [trends, setTrends] = useState<TrendAnalysis[]>([]);
+  const [wellnessData, setWellnessData] = useState<any>(null);
+
+  useEffect(() => {
+    checkConnectionAndLoadData();
+  }, []);
+
+  const checkConnectionAndLoadData = async () => {
+    const isConnected = await isFitbitConnected();
+    setConnected(isConnected);
+    if (isConnected) {
+      loadInsights();
+    }
+  };
+
+  const loadInsights = async () => {
+    setLoading(true);
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+
+      const endDateStr = endDate.toISOString().split("T")[0];
+      const startDateStr = startDate.toISOString().split("T")[0];
+
+      const data = await getWellnessData(startDateStr, endDateStr);
+      setWellnessData(data);
+
+      const calculatedTrends = calculateTrends(data);
+      setTrends(calculatedTrends);
+
+      try {
+        await syncFitbitDataToAWS("test-user", data);
+      } catch (syncError) {
+        console.error("Failed to sync to AWS:", syncError);
+      }
+    } catch (error: any) {
+      console.error("Error loading insights:", error);
+      Alert.alert(
+        "Error",
+        error?.message || "Failed to load Fitbit data. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await checkConnectionAndLoadData();
+    setRefreshing(false);
+  };
+
+  const getTrendForMetric = (metric: string): TrendAnalysis | undefined => {
+    return trends.find((t) => t.metric === metric);
+  };
+
+  const formatChange = (change: number): string => {
+    const sign = change > 0 ? "+" : "";
+    return `${sign}${change.toFixed(1)}%`;
+  };
+
+  const formatTime = (hours: number): string => {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return `${h}h ${m}m`;
+  };
   return (
     <View style={styles.container}>
       {/* HEADER */}
@@ -23,155 +113,418 @@ export default function InsightsScreen() {
         <Text style={styles.subtitle}>Personalized wellness trends</Text>
       </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* SLEEP INSIGHT */}
-        <View style={styles.insightCard}>
-          <View style={styles.insightHeader}>
-            <View style={styles.iconContainer}>
-              <Moon size={24} color="#6366F1" />
-            </View>
-
-            <View style={styles.insightTitleContainer}>
-              <Text style={styles.insightTitle}>Sleep Trend</Text>
-              <Text style={styles.insightMeta}>Last 7 days vs baseline</Text>
-            </View>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {loading && !wellnessData ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.loadingText}>Loading your insights...</Text>
           </View>
-
-          <View style={styles.metricRow}>
-            <View style={styles.metric}>
-              <Text style={styles.metricValue}>7.2 hrs</Text>
-              <Text style={styles.metricLabel}>Average</Text>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.metric}>
-              <View style={styles.changeContainer}>
-                <TrendingUp size={16} color="#10B981" />
-                <Text style={styles.metricValuePositive}>+18 min</Text>
-              </View>
-              <Text style={styles.metricLabel}>vs baseline</Text>
-            </View>
-          </View>
-
-          <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: "75%" }]} />
-          </View>
-
-          <View style={styles.explainer}>
-            <Info size={14} color="#6B7280" />
-            <Text style={styles.explainerText}>
-              Your sleep has improved by 4% this week. Keep up your evening
-              routine.
+        ) : !connected ? (
+          /* CONNECT WEARABLE CARD */
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Connect Wearable</Text>
+            <Text style={styles.cardText}>
+              Sync your Fitbit to unlock advanced insights based on your sleep,
+              heart rate, and activity data.
             </Text>
+
+            <TouchableOpacity
+              style={styles.connectButton}
+              onPress={() => {
+                router.push("/(tabs)/profile");
+              }}
+            >
+              <Text style={styles.connectButtonText}>Go to Profile</Text>
+            </TouchableOpacity>
           </View>
-        </View>
+        ) : (
+          <>
+            {/* SLEEP INSIGHT */}
+            {(() => {
+              const sleepTrend = getTrendForMetric("sleep");
+              if (!sleepTrend) return null;
 
-        {/* HRV INSIGHT */}
-        <View style={styles.insightCard}>
-          <View style={styles.insightHeader}>
-            <View style={[styles.iconContainer, { backgroundColor: "#FEE2E2" }]}>
-              <Heart size={24} color="#EF4444" />
-            </View>
+              const progress = Math.min(
+                100,
+                Math.max(
+                  0,
+                  (sleepTrend.current7DayAvg / 8) * 100
+                )
+              );
 
-            <View style={styles.insightTitleContainer}>
-              <Text style={styles.insightTitle}>HRV Recovery</Text>
-              <Text style={styles.insightMeta}>Heart Rate Variability</Text>
-            </View>
-          </View>
+              return (
+                <View style={styles.insightCard}>
+                  <View style={styles.insightHeader}>
+                    <View style={styles.iconContainer}>
+                      <Moon size={24} color="#6366F1" />
+                    </View>
 
-          <View style={styles.metricRow}>
-            <View style={styles.metric}>
-              <Text style={styles.metricValue}>58 ms</Text>
-              <Text style={styles.metricLabel}>7-day avg</Text>
-            </View>
+                    <View style={styles.insightTitleContainer}>
+                      <Text style={styles.insightTitle}>Sleep Trend</Text>
+                      <Text style={styles.insightMeta}>
+                        Last 7 days vs 30-day baseline
+                      </Text>
+                    </View>
+                  </View>
 
-            <View style={styles.divider} />
+                  <View style={styles.metricRow}>
+                    <View style={styles.metric}>
+                      <Text style={styles.metricValue}>
+                        {formatTime(sleepTrend.current7DayAvg)}
+                      </Text>
+                      <Text style={styles.metricLabel}>7-day average</Text>
+                    </View>
 
-            <View style={styles.metric}>
-              <View style={styles.changeContainer}>
-                <TrendingDown size={16} color="#EF4444" />
-                <Text style={styles.metricValueNegative}>-8%</Text>
-              </View>
-              <Text style={styles.metricLabel}>vs baseline</Text>
-            </View>
-          </View>
+                    <View style={styles.divider} />
 
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: "45%", backgroundColor: "#EF4444" },
-              ]}
-            />
-          </View>
+                    <View style={styles.metric}>
+                      <View style={styles.changeContainer}>
+                        {sleepTrend.changeType === "increase" ? (
+                          <TrendingUp size={16} color="#10B981" />
+                        ) : sleepTrend.changeType === "decrease" ? (
+                          <TrendingDown size={16} color="#EF4444" />
+                        ) : (
+                          <TrendingUp size={16} color="#6B7280" />
+                        )}
+                        <Text
+                          style={
+                            sleepTrend.changeType === "increase"
+                              ? styles.metricValuePositive
+                              : sleepTrend.changeType === "decrease"
+                              ? styles.metricValueNegative
+                              : styles.metricValueNeutral
+                          }
+                        >
+                          {formatChange(sleepTrend.change)}
+                        </Text>
+                      </View>
+                      <Text style={styles.metricLabel}>vs baseline</Text>
+                    </View>
+                  </View>
 
-          <View style={styles.explainer}>
-            <Info size={14} color="#6B7280" />
-            <Text style={styles.explainerText}>
-              Your HRV is lower than usual. Consider rest or relaxation
-              techniques.
-            </Text>
-          </View>
-        </View>
+                  <View style={styles.progressBar}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${progress}%`,
+                          backgroundColor:
+                            sleepTrend.changeType === "increase"
+                              ? "#10B981"
+                              : sleepTrend.changeType === "decrease"
+                              ? "#EF4444"
+                              : "#6B7280",
+                        },
+                      ]}
+                    />
+                  </View>
 
-        {/* ACTIVITY INSIGHT */}
-        <View style={styles.insightCard}>
-          <View style={styles.insightHeader}>
-            <View style={[styles.iconContainer, { backgroundColor: "#DBEAFE" }]}>
-              <Footprints size={24} color="#3B82F6" />
-            </View>
+                  <View style={styles.explainer}>
+                    <Info size={14} color="#6B7280" />
+                    <Text style={styles.explainerText}>
+                      {sleepTrend.changeType === "increase"
+                        ? `Your sleep has improved by ${Math.abs(sleepTrend.change).toFixed(1)}% this week. Keep up your evening routine.`
+                        : sleepTrend.changeType === "decrease"
+                        ? `Your sleep is ${Math.abs(sleepTrend.change).toFixed(1)}% lower than your baseline. Consider improving your sleep hygiene.`
+                        : "Your sleep is consistent with your baseline."}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
 
-            <View style={styles.insightTitleContainer}>
-              <Text style={styles.insightTitle}>Activity Momentum</Text>
-              <Text style={styles.insightMeta}>Weekly progress</Text>
-            </View>
-          </View>
+            {/* HRV INSIGHT */}
+            {(() => {
+              const hrvTrend = getTrendForMetric("hrv");
+              if (!hrvTrend) return null;
 
-          <View style={styles.metricRow}>
-            <View style={styles.metric}>
-              <Text style={styles.metricValue}>32 min</Text>
-              <Text style={styles.metricLabel}>Avg active time</Text>
-            </View>
+              const progress = Math.min(
+                100,
+                Math.max(0, (hrvTrend.current7DayAvg / 100) * 100)
+              ); // Normalize to 100ms
 
-            <View style={styles.divider} />
+              return (
+                <View style={styles.insightCard}>
+                  <View style={styles.insightHeader}>
+                    <View style={[styles.iconContainer, { backgroundColor: "#FEE2E2" }]}>
+                      <Heart size={24} color="#EF4444" />
+                    </View>
 
-            <View style={styles.metric}>
-              <Text style={styles.metricValue}>5/7 days</Text>
-              <Text style={styles.metricLabel}>Goal reached</Text>
-            </View>
-          </View>
+                    <View style={styles.insightTitleContainer}>
+                      <Text style={styles.insightTitle}>HRV Recovery</Text>
+                      <Text style={styles.insightMeta}>
+                        Heart Rate Variability
+                      </Text>
+                    </View>
+                  </View>
 
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: "71%", backgroundColor: "#3B82F6" },
-              ]}
-            />
-          </View>
+                  <View style={styles.metricRow}>
+                    <View style={styles.metric}>
+                      <Text style={styles.metricValue}>
+                        {hrvTrend.current7DayAvg.toFixed(0)} ms
+                      </Text>
+                      <Text style={styles.metricLabel}>7-day avg</Text>
+                    </View>
 
-          <View style={styles.explainer}>
-            <Info size={14} color="#6B7280" />
-            <Text style={styles.explainerText}>
-              Great consistency! You maintained 20+ active minutes on 5 days
-              this week.
-            </Text>
-          </View>
-        </View>
+                    <View style={styles.divider} />
 
-        {/* CONNECT WEARABLE CARD */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Connect Wearable</Text>
-          <Text style={styles.cardText}>
-            Sync your Fitbit to unlock advanced insights based on your sleep,
-            heart rate, and activity data.
-          </Text>
+                    <View style={styles.metric}>
+                      <View style={styles.changeContainer}>
+                        {hrvTrend.changeType === "increase" ? (
+                          <TrendingUp size={16} color="#10B981" />
+                        ) : hrvTrend.changeType === "decrease" ? (
+                          <TrendingDown size={16} color="#EF4444" />
+                        ) : (
+                          <TrendingUp size={16} color="#6B7280" />
+                        )}
+                        <Text
+                          style={
+                            hrvTrend.changeType === "increase"
+                              ? styles.metricValuePositive
+                              : hrvTrend.changeType === "decrease"
+                              ? styles.metricValueNegative
+                              : styles.metricValueNeutral
+                          }
+                        >
+                          {formatChange(hrvTrend.change)}
+                        </Text>
+                      </View>
+                      <Text style={styles.metricLabel}>vs baseline</Text>
+                    </View>
+                  </View>
 
-          <View style={styles.connectButton}>
-            <Text style={styles.connectButtonText}>Connect Fitbit</Text>
-          </View>
-        </View>
+                  <View style={styles.progressBar}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${progress}%`,
+                          backgroundColor:
+                            hrvTrend.changeType === "increase"
+                              ? "#10B981"
+                              : hrvTrend.changeType === "decrease"
+                              ? "#EF4444"
+                              : "#6B7280",
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.explainer}>
+                    <Info size={14} color="#6B7280" />
+                    <Text style={styles.explainerText}>
+                      {hrvTrend.changeType === "increase"
+                        ? `Your HRV has improved by ${Math.abs(hrvTrend.change).toFixed(1)}%. Great recovery!`
+                        : hrvTrend.changeType === "decrease"
+                        ? `Your HRV is ${Math.abs(hrvTrend.change).toFixed(1)}% lower than usual. Consider rest or relaxation techniques.`
+                        : "Your HRV is consistent with your baseline."}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* RESTING HEART RATE INSIGHT */}
+            {(() => {
+              const rhrTrend = getTrendForMetric("restingHeartRate");
+              if (!rhrTrend) return null;
+
+              const progress = Math.min(
+                100,
+                Math.max(0, ((80 - rhrTrend.current7DayAvg) / 40) * 100)
+              );
+
+              return (
+                <View style={styles.insightCard}>
+                  <View style={styles.insightHeader}>
+                    <View style={[styles.iconContainer, { backgroundColor: "#DBEAFE" }]}>
+                      <Heart size={24} color="#3B82F6" />
+                    </View>
+
+                    <View style={styles.insightTitleContainer}>
+                      <Text style={styles.insightTitle}>Resting Heart Rate</Text>
+                      <Text style={styles.insightMeta}>7-day average</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.metricRow}>
+                    <View style={styles.metric}>
+                      <Text style={styles.metricValue}>
+                        {rhrTrend.current7DayAvg.toFixed(0)} bpm
+                      </Text>
+                      <Text style={styles.metricLabel}>7-day avg</Text>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.metric}>
+                      <View style={styles.changeContainer}>
+                        {rhrTrend.changeType === "increase" ? (
+                          <TrendingDown size={16} color="#10B981" />
+                        ) : rhrTrend.changeType === "decrease" ? (
+                          <TrendingUp size={16} color="#EF4444" />
+                        ) : (
+                          <TrendingUp size={16} color="#6B7280" />
+                        )}
+                        <Text
+                          style={
+                            rhrTrend.changeType === "increase"
+                              ? styles.metricValuePositive
+                              : rhrTrend.changeType === "decrease"
+                              ? styles.metricValueNegative
+                              : styles.metricValueNeutral
+                          }
+                        >
+                          {formatChange(rhrTrend.change)}
+                        </Text>
+                      </View>
+                      <Text style={styles.metricLabel}>vs baseline</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.progressBar}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${progress}%`,
+                          backgroundColor:
+                            rhrTrend.changeType === "increase"
+                              ? "#10B981"
+                              : rhrTrend.changeType === "decrease"
+                              ? "#EF4444"
+                              : "#6B7280",
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.explainer}>
+                    <Info size={14} color="#6B7280" />
+                    <Text style={styles.explainerText}>
+                      {rhrTrend.changeType === "increase"
+                        ? `Your resting heart rate has decreased by ${Math.abs(rhrTrend.change).toFixed(1)}%. This indicates improved cardiovascular fitness.`
+                        : rhrTrend.changeType === "decrease"
+                        ? `Your resting heart rate has increased by ${Math.abs(rhrTrend.change).toFixed(1)}%. Consider more rest and recovery.`
+                        : "Your resting heart rate is consistent with your baseline."}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* ACTIVITY INSIGHT */}
+            {(() => {
+              const activityTrend = getTrendForMetric("activity");
+              if (!activityTrend) return null;
+
+              const progress = Math.min(
+                100,
+                Math.max(0, (activityTrend.current7DayAvg / 60) * 100)
+              );
+
+              return (
+                <View style={styles.insightCard}>
+                  <View style={styles.insightHeader}>
+                    <View style={[styles.iconContainer, { backgroundColor: "#DBEAFE" }]}>
+                      <Footprints size={24} color="#3B82F6" />
+                    </View>
+
+                    <View style={styles.insightTitleContainer}>
+                      <Text style={styles.insightTitle}>Activity Momentum</Text>
+                      <Text style={styles.insightMeta}>Weekly progress</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.metricRow}>
+                    <View style={styles.metric}>
+                      <Text style={styles.metricValue}>
+                        {activityTrend.current7DayAvg.toFixed(0)} min
+                      </Text>
+                      <Text style={styles.metricLabel}>Avg active time</Text>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.metric}>
+                      <View style={styles.changeContainer}>
+                        {activityTrend.changeType === "increase" ? (
+                          <TrendingUp size={16} color="#10B981" />
+                        ) : activityTrend.changeType === "decrease" ? (
+                          <TrendingDown size={16} color="#EF4444" />
+                        ) : (
+                          <TrendingUp size={16} color="#6B7280" />
+                        )}
+                        <Text
+                          style={
+                            activityTrend.changeType === "increase"
+                              ? styles.metricValuePositive
+                              : activityTrend.changeType === "decrease"
+                              ? styles.metricValueNegative
+                              : styles.metricValueNeutral
+                          }
+                        >
+                          {formatChange(activityTrend.change)}
+                        </Text>
+                      </View>
+                      <Text style={styles.metricLabel}>vs baseline</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.progressBar}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: `${progress}%`,
+                          backgroundColor:
+                            activityTrend.changeType === "increase"
+                              ? "#10B981"
+                              : activityTrend.changeType === "decrease"
+                              ? "#EF4444"
+                              : "#6B7280",
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.explainer}>
+                    <Info size={14} color="#6B7280" />
+                    <Text style={styles.explainerText}>
+                      {activityTrend.changeType === "increase"
+                        ? `Great progress! Your activity has increased by ${Math.abs(activityTrend.change).toFixed(1)}% this week.`
+                        : activityTrend.changeType === "decrease"
+                        ? `Your activity is ${Math.abs(activityTrend.change).toFixed(1)}% lower than your baseline. Try to stay active!`
+                        : "Your activity level is consistent with your baseline."}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* REFRESH BUTTON */}
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={loadInsights}
+              disabled={loading}
+            >
+              <RefreshCw
+                size={16}
+                color="#3B82F6"
+                style={loading && { opacity: 0.5 }}
+              />
+              <Text style={styles.refreshButtonText}>
+                {loading ? "Refreshing..." : "Refresh Data"}
+              </Text>
+            </TouchableOpacity>
+          </>
+        )}
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -179,9 +532,6 @@ export default function InsightsScreen() {
   );
 }
 
-//
-// STYLES
-//
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F9FAFB" },
 
@@ -292,5 +642,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#FFFFFF",
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: "#6B7280",
+  },
+  metricValueNeutral: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#6B7280",
+  },
+  refreshButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginTop: 20,
+    marginHorizontal: 20,
+  },
+  refreshButtonText: {
+    marginLeft: 8,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#3B82F6",
   },
 });

@@ -21,6 +21,8 @@ import {
 } from "react-native";
 
 import { auth } from "@/constants/firebase";
+import { syncFitbitDataToAWS } from "@/utils/aws-fitbit";
+import { getWellnessData } from "@/utils/fitbit-api";
 import {
   connectFitbit,
   disconnectFitbit,
@@ -302,7 +304,7 @@ export default function ProfileScreen() {
 
           <TouchableOpacity
             style={styles.menuItem}
-            onPress={() => router.push("/find-clinicians")}
+            onPress={() => router.push("/find-clinicians" as any)}
           >
             <View style={styles.menuIcon}>
               <ExternalLink size={20} color="#374151" />

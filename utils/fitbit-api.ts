@@ -117,6 +117,16 @@ async function fitbitRequest<T>(endpoint: string): Promise<T> {
   return response.json();
 }
 
+function listDates(startDate: string, endDate: string): string[] {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  const dates: string[] = [];
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
 
 export async function getSleepData(
   startDate: string,
@@ -137,7 +147,11 @@ export async function getHeartRateVariabilityData(
   startDate: string,
   endDate: string
 ): Promise<{ 'hrv': HeartRateVariabilityData[] }> {
-  return fitbitRequest(`/hrv/date/${startDate}/${endDate}.json`);
+  const dates = listDates(startDate, endDate);
+  const results = await Promise.all(
+    dates.map((date) => fitbitRequest<{ hrv: HeartRateVariabilityData[] }>(`/hrv/date/${date}.json`).catch(() => ({ hrv: [] })))
+  );
+  return { hrv: results.flatMap((r) => r.hrv || []) };
 }
 
 export async function getRestingHeartRateData(
@@ -152,7 +166,14 @@ export async function getActivityData(
   startDate: string,
   endDate: string
 ): Promise<{ 'activities': ActivityData[] }> {
-  return fitbitRequest(`/activities/date/${startDate}/${endDate}.json`);
+  const dates = listDates(startDate, endDate);
+  const results = await Promise.all(
+    dates.map(async (date) => {
+      const data = await fitbitRequest<Omit<ActivityData, 'dateTime'>>(`/activities/date/${date}.json`);
+      return { ...(data as any), dateTime: date } as ActivityData;
+    })
+  );
+  return { activities: results };
 }
 
 export interface WellnessData {
@@ -222,7 +243,7 @@ export async function getWellnessData(
 
     if (hrvData?.hrv) {
       hrvData.hrv.forEach((hrv) => {
-        const date = hrv.dateTime.split('T')[0];
+        const date = hrv.dateTime.includes('T') ? hrv.dateTime.split('T')[0] : hrv.dateTime;
         if (!dateMap.has(date)) {
           dateMap.set(date, { date });
         }
@@ -345,10 +366,10 @@ export function calculateTrends(
 
   const activity7Day = last7Days
     .map((d) => d.activity?.activeMinutes || 0)
-    .filter((m) => m >= 0);
+    .filter((m) => m > 0);
   const activity30Day = last30Days
     .map((d) => d.activity?.activeMinutes || 0)
-    .filter((m) => m >= 0);
+    .filter((m) => m > 0);
 
   if (activity7Day.length > 0 && activity30Day.length > 0) {
     const avg7 = activity7Day.reduce((a, b) => a + b, 0) / activity7Day.length;
