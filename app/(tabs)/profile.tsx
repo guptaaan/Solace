@@ -8,7 +8,7 @@ import {
   Shield,
   User,
 } from "lucide-react-native";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,7 @@ import {
   View,
 } from "react-native";
 
-import { auth } from "@/constants/firebase";
+import { auth, db } from "@/constants/firebase";
 import { getFitbitDataFromAWS, syncFitbitDataToAWS } from "@/utils/aws-fitbit";
 import { getWellnessData } from "@/utils/fitbit-api";
 import {
@@ -29,30 +29,72 @@ import {
   getFitbitStoredUserId,
   isFitbitConnected,
 } from "@/utils/fitbit-auth";
+
 import {
   createUserWithEmailAndPassword,
   signOut as fbSignOut,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  updateProfile,
 } from "firebase/auth";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+
+type Mode = "signin" | "signup";
+
+type UserProfile = {
+  name: string;
+  age?: number | null;
+  weight?: number | null;
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
 
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
 
+  // ✅ Mode toggle (professional UI)
+  const [mode, setMode] = useState<Mode>("signin");
+
+  // Auth fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Signup-only fields
+  const [name, setName] = useState("");
+  const [age, setAge] = useState("");
+  const [weight, setWeight] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [fitbitConnected, setFitbitConnected] = useState(false);
   const [fitbitLoading, setFitbitLoading] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       setProfileEmail(user?.email ?? null);
+
+      if (!user) {
+        setProfileName(null);
+        return;
+      }
+
+      // Prefer Auth displayName, fallback to Firestore
+      if (user.displayName) {
+        setProfileName(user.displayName);
+        return;
+      }
+
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        const data = snap.exists() ? (snap.data() as UserProfile) : null;
+        setProfileName(data?.name ?? null);
+      } catch {
+        setProfileName(null);
+      }
     });
+
     return unsub;
   }, []);
 
@@ -65,12 +107,74 @@ export default function ProfileScreen() {
     setFitbitConnected(connected);
   };
 
+  const isLoggedIn = !!profileEmail;
+
+  // Small helper: clear error when mode changes
+  useEffect(() => {
+    setError(null);
+  }, [mode]);
+
+  const formTitle = useMemo(() => {
+    return mode === "signin"
+      ? "Sign in to Solace"
+      : "Create your Solace account";
+  }, [mode]);
+
+  const formSubtitle = useMemo(() => {
+    return mode === "signin"
+      ? "Use your email and password to continue."
+      : "Enter a few details to personalize your experience.";
+  }, [mode]);
+
   const handleSignUp = async () => {
     setError(null);
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("Please enter your name to sign up.");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password,
+      );
+
+      // Store displayName (for welcome text)
+      await updateProfile(cred.user, { displayName: trimmedName });
+
+      const parsedAge = age.trim().length > 0 ? Number(age.trim()) : null;
+      const parsedWeight =
+        weight.trim().length > 0 ? Number(weight.trim()) : null;
+
+      if (parsedAge !== null && Number.isNaN(parsedAge)) {
+        setError("Age must be a number.");
+        setLoading(false);
+        return;
+      }
+      if (parsedWeight !== null && Number.isNaN(parsedWeight)) {
+        setError("Weight must be a number.");
+        setLoading(false);
+        return;
+      }
+
+      await setDoc(
+        doc(db, "users", cred.user.uid),
+        {
+          name: trimmedName,
+          age: parsedAge,
+          weight: parsedWeight,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      setProfileName(trimmedName);
+      // Optional: switch to sign-in mode after signup (not necessary because user is logged in)
     } catch (e: any) {
       setError(e?.message ?? "Sign up failed");
     } finally {
@@ -97,8 +201,17 @@ export default function ProfileScreen() {
 
     try {
       await fbSignOut(auth);
+
+      // clear inputs
       setEmail("");
       setPassword("");
+      setName("");
+      setAge("");
+      setWeight("");
+      setProfileName(null);
+
+      // back to sign in (professional default)
+      setMode("signin");
     } catch (e: any) {
       setError(e?.message ?? "Logout failed");
     } finally {
@@ -125,19 +238,23 @@ export default function ProfileScreen() {
         if (success) {
           setFitbitConnected(true);
           Alert.alert("Success", "Fitbit connected successfully!");
-          
+
           const endDate = new Date();
           const startDate = new Date();
           startDate.setDate(startDate.getDate() - 30);
           const endDateStr = endDate.toISOString().split("T")[0];
           const startDateStr = startDate.toISOString().split("T")[0];
-          
+
           try {
             const data = await getWellnessData(startDateStr, endDateStr);
             const userId = (await getFitbitStoredUserId()) || "test-user";
             const write = await syncFitbitDataToAWS(userId, data);
             const read = await getFitbitDataFromAWS(userId);
-            console.log("AWS Fitbit sync ok", { userId, write, readRecords: read.length });
+            console.log("AWS Fitbit sync ok", {
+              userId,
+              write,
+              readRecords: read.length,
+            });
           } catch (syncError) {
             console.error("Failed to sync initial data:", syncError);
           }
@@ -151,8 +268,6 @@ export default function ProfileScreen() {
       }
     }
   };
-
-  const isLoggedIn = !!profileEmail;
 
   return (
     <View style={styles.container}>
@@ -168,19 +283,91 @@ export default function ProfileScreen() {
           </View>
 
           <Text style={styles.name}>
-            {isLoggedIn ? "Welcome back" : "Welcome"}
+            {isLoggedIn
+              ? `Welcome${profileName ? `, ${profileName}` : ""}`
+              : "Welcome"}
           </Text>
 
           <Text style={styles.email}>
-            {isLoggedIn ? profileEmail : "Create an account or sign in below"}
+            {isLoggedIn ? profileEmail : "Manage your account and connections."}
           </Text>
         </View>
 
         {/* AUTH SECTION */}
         {!isLoggedIn && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Solace account</Text>
+            {/* Mode Toggle */}
+            <View style={styles.modeToggle}>
+              <TouchableOpacity
+                style={[
+                  styles.modeBtn,
+                  mode === "signin" && styles.modeBtnActive,
+                ]}
+                onPress={() => setMode("signin")}
+                disabled={loading}
+              >
+                <Text
+                  style={[
+                    styles.modeBtnText,
+                    mode === "signin" && styles.modeBtnTextActive,
+                  ]}
+                >
+                  Sign in
+                </Text>
+              </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[
+                  styles.modeBtn,
+                  mode === "signup" && styles.modeBtnActive,
+                ]}
+                onPress={() => setMode("signup")}
+                disabled={loading}
+              >
+                <Text
+                  style={[
+                    styles.modeBtnText,
+                    mode === "signup" && styles.modeBtnTextActive,
+                  ]}
+                >
+                  Sign up
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.formTitle}>{formTitle}</Text>
+            <Text style={styles.formSubtitle}>{formSubtitle}</Text>
+
+            {/* Signup-only fields */}
+            {mode === "signup" && (
+              <>
+                <TextInput
+                  placeholder="Name"
+                  autoCapitalize="words"
+                  style={styles.input}
+                  value={name}
+                  onChangeText={setName}
+                />
+
+                <TextInput
+                  placeholder="Age (optional)"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                  value={age}
+                  onChangeText={setAge}
+                />
+
+                <TextInput
+                  placeholder="Weight (optional)"
+                  keyboardType="number-pad"
+                  style={styles.input}
+                  value={weight}
+                  onChangeText={setWeight}
+                />
+              </>
+            )}
+
+            {/* Always for both modes */}
             <TextInput
               placeholder="Email"
               autoCapitalize="none"
@@ -198,27 +385,33 @@ export default function ProfileScreen() {
               onChangeText={setPassword}
             />
 
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleSignIn}
-                disabled={loading}
-              >
-                <Text style={styles.primaryButtonText}>
-                  {loading ? "..." : "Sign in"}
-                </Text>
-              </TouchableOpacity>
+            {/* Single primary button */}
+            <TouchableOpacity
+              style={styles.primaryButtonFull}
+              onPress={mode === "signin" ? handleSignIn : handleSignUp}
+              disabled={loading}
+            >
+              <Text style={styles.primaryButtonText}>
+                {loading
+                  ? "..."
+                  : mode === "signin"
+                    ? "Sign in"
+                    : "Create account"}
+              </Text>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={handleSignUp}
-                disabled={loading}
-              >
-                <Text style={styles.secondaryButtonText}>
-                  {loading ? "..." : "Sign up"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {/* Switch hint */}
+            <TouchableOpacity
+              onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
+              disabled={loading}
+              style={{ marginTop: 10 }}
+            >
+              <Text style={styles.switchText}>
+                {mode === "signin"
+                  ? "Don’t have an account?  Sign up"
+                  : "Already have an account?  Sign in"}
+              </Text>
+            </TouchableOpacity>
 
             {error && <Text style={styles.errorText}>{error}</Text>}
           </View>
@@ -371,6 +564,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 28, fontWeight: "700", color: "#111827" },
   content: { flex: 1 },
+
   profileCard: {
     backgroundColor: "#FFFFFF",
     alignItems: "center",
@@ -391,6 +585,7 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 20, fontWeight: "700", marginBottom: 4, color: "#111827" },
   email: { fontSize: 14, color: "#6B7280" },
+
   section: { marginTop: 24, marginHorizontal: 20 },
   sectionTitle: {
     fontSize: 16,
@@ -398,6 +593,36 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginBottom: 12,
   },
+
+  // ✅ Professional mode toggle
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 14,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  modeBtnActive: {
+    backgroundColor: "#FFFFFF",
+    elevation: 1,
+  },
+  modeBtnText: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
+  modeBtnTextActive: { color: "#111827" },
+
+  formTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  formSubtitle: {
+    marginTop: 4,
+    marginBottom: 12,
+    fontSize: 13,
+    color: "#6B7280",
+  },
+
   input: {
     backgroundColor: "#FFFFFF",
     borderRadius: 10,
@@ -407,40 +632,20 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     marginBottom: 10,
   },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  primaryButton: {
-    flex: 1,
+
+  primaryButtonFull: {
     backgroundColor: "#10B981",
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: "center",
+    marginTop: 4,
   },
-  primaryButtonText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  errorText: {
-    marginTop: 8,
-    color: "#B91C1C",
-    fontSize: 13,
-  },
+  primaryButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
+
+  switchText: { textAlign: "center", fontSize: 13, color: "#374151" },
+
+  errorText: { marginTop: 10, color: "#B91C1C", fontSize: 13 },
+
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -461,6 +666,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   menuText: { flex: 1, fontSize: 15, fontWeight: "500", color: "#374151" },
+
   connectionCard: {
     backgroundColor: "#FFFFFF",
     padding: 20,
@@ -485,13 +691,10 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 10,
   },
-  disconnectButton: {
-    backgroundColor: "#EF4444",
-  },
-  connectButtonDisabled: {
-    opacity: 0.6,
-  },
+  disconnectButton: { backgroundColor: "#EF4444" },
+  connectButtonDisabled: { opacity: 0.6 },
   connectButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
+
   logoutButton: {
     flexDirection: "row",
     justifyContent: "center",
@@ -507,6 +710,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#EF4444",
   },
+
   footer: { alignItems: "center", marginTop: 32, paddingBottom: 20 },
   footerText: { fontSize: 13, color: "#9CA3AF" },
 });
