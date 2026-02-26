@@ -1,9 +1,9 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
-    browserLocalPersistence,
-    getAuth,
-    setPersistence,
-    type Auth,
+  browserLocalPersistence,
+  getAuth,
+  setPersistence,
+  type Auth,
 } from "firebase/auth";
 import { Platform } from "react-native";
 
@@ -23,6 +23,6 @@ const auth: Auth = getAuth(app);
 if (Platform.OS === "web") {
   setPersistence(auth, browserLocalPersistence).catch(() => {});
 }
-
+//exporting
 export { app, auth };
 
