@@ -5,6 +5,7 @@ import {
   setPersistence,
   type Auth,
 } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 import { Platform } from "react-native";
 
 const firebaseConfig = {
@@ -19,10 +20,11 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 const auth: Auth = getAuth(app);
+const db = getFirestore(app);
 
 if (Platform.OS === "web") {
   setPersistence(auth, browserLocalPersistence).catch(() => {});
 }
-//exporting
-export { app, auth };
+
+export { app, auth, db };
 

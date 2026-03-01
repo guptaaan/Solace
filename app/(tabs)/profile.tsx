@@ -8,14 +8,13 @@ import {
   Shield,
   User,
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -30,16 +29,8 @@ import {
   isFitbitConnected,
 } from "@/utils/fitbit-auth";
 
-import {
-  createUserWithEmailAndPassword,
-  signOut as fbSignOut,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  updateProfile,
-} from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-
-type Mode = "signin" | "signup";
+import { signOut as fbSignOut, onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 
 type UserProfile = {
   name: string;
@@ -53,20 +44,7 @@ export default function ProfileScreen() {
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
 
-  // ✅ Mode toggle (professional UI)
-  const [mode, setMode] = useState<Mode>("signin");
-
-  // Auth fields
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  // Signup-only fields
-  const [name, setName] = useState("");
-  const [age, setAge] = useState("");
-  const [weight, setWeight] = useState("");
-
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [fitbitConnected, setFitbitConnected] = useState(false);
   const [fitbitLoading, setFitbitLoading] = useState(false);
@@ -80,7 +58,6 @@ export default function ProfileScreen() {
         return;
       }
 
-      // Prefer Auth displayName, fallback to Firestore
       if (user.displayName) {
         setProfileName(user.displayName);
         return;
@@ -107,113 +84,17 @@ export default function ProfileScreen() {
     setFitbitConnected(connected);
   };
 
-  const isLoggedIn = !!profileEmail;
-
-  // Small helper: clear error when mode changes
-  useEffect(() => {
-    setError(null);
-  }, [mode]);
-
-  const formTitle = useMemo(() => {
-    return mode === "signin"
-      ? "Sign in to Solace"
-      : "Create your Solace account";
-  }, [mode]);
-
-  const formSubtitle = useMemo(() => {
-    return mode === "signin"
-      ? "Use your email and password to continue."
-      : "Enter a few details to personalize your experience.";
-  }, [mode]);
-
-  const handleSignUp = async () => {
-    setError(null);
-
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setError("Please enter your name to sign up.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const cred = await createUserWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password,
-      );
-
-      // Store displayName (for welcome text)
-      await updateProfile(cred.user, { displayName: trimmedName });
-
-      const parsedAge = age.trim().length > 0 ? Number(age.trim()) : null;
-      const parsedWeight =
-        weight.trim().length > 0 ? Number(weight.trim()) : null;
-
-      if (parsedAge !== null && Number.isNaN(parsedAge)) {
-        setError("Age must be a number.");
-        setLoading(false);
-        return;
-      }
-      if (parsedWeight !== null && Number.isNaN(parsedWeight)) {
-        setError("Weight must be a number.");
-        setLoading(false);
-        return;
-      }
-
-      await setDoc(
-        doc(db, "users", cred.user.uid),
-        {
-          name: trimmedName,
-          age: parsedAge,
-          weight: parsedWeight,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      setProfileName(trimmedName);
-      // Optional: switch to sign-in mode after signup (not necessary because user is logged in)
-    } catch (e: any) {
-      setError(e?.message ?? "Sign up failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignIn = async () => {
-    setError(null);
-    setLoading(true);
-
-    try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
-    } catch (e: any) {
-      setError(e?.message ?? "Sign in failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
-    setError(null);
     setLoading(true);
-
     try {
       await fbSignOut(auth);
 
-      // clear inputs
-      setEmail("");
-      setPassword("");
-      setName("");
-      setAge("");
-      setWeight("");
+      setProfileEmail(null);
       setProfileName(null);
 
-      // back to sign in (professional default)
-      setMode("signin");
+      router.replace("/");
     } catch (e: any) {
-      setError(e?.message ?? "Logout failed");
+      Alert.alert("Error", e?.message ?? "Logout failed");
     } finally {
       setLoading(false);
     }
@@ -269,6 +150,10 @@ export default function ProfileScreen() {
     }
   };
 
+  const isLoggedIn = !!profileEmail;
+
+  if (!isLoggedIn) return null;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -276,176 +161,43 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* TOP CARD */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <User size={40} color="#6B7280" />
           </View>
 
           <Text style={styles.name}>
-            {isLoggedIn
-              ? `Welcome${profileName ? `, ${profileName}` : ""}`
-              : "Welcome"}
+            {`Welcome${profileName ? `, ${profileName}` : ""}`}
           </Text>
 
-          <Text style={styles.email}>
-            {isLoggedIn ? profileEmail : "Manage your account and connections."}
-          </Text>
+          <Text style={styles.email}>{profileEmail}</Text>
         </View>
 
-        {/* AUTH SECTION */}
-        {!isLoggedIn && (
-          <View style={styles.section}>
-            {/* Mode Toggle */}
-            <View style={styles.modeToggle}>
-              <TouchableOpacity
-                style={[
-                  styles.modeBtn,
-                  mode === "signin" && styles.modeBtnActive,
-                ]}
-                onPress={() => setMode("signin")}
-                disabled={loading}
-              >
-                <Text
-                  style={[
-                    styles.modeBtnText,
-                    mode === "signin" && styles.modeBtnTextActive,
-                  ]}
-                >
-                  Sign in
-                </Text>
-              </TouchableOpacity>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Account</Text>
 
-              <TouchableOpacity
-                style={[
-                  styles.modeBtn,
-                  mode === "signup" && styles.modeBtnActive,
-                ]}
-                onPress={() => setMode("signup")}
-                disabled={loading}
-              >
-                <Text
-                  style={[
-                    styles.modeBtnText,
-                    mode === "signup" && styles.modeBtnTextActive,
-                  ]}
-                >
-                  Sign up
-                </Text>
-              </TouchableOpacity>
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={styles.menuIcon}>
+              <User size={20} color="#374151" />
             </View>
+            <Text style={styles.menuText}>Personal Information</Text>
+          </TouchableOpacity>
 
-            <Text style={styles.formTitle}>{formTitle}</Text>
-            <Text style={styles.formSubtitle}>{formSubtitle}</Text>
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={styles.menuIcon}>
+              <Bell size={20} color="#374151" />
+            </View>
+            <Text style={styles.menuText}>Notifications</Text>
+          </TouchableOpacity>
 
-            {/* Signup-only fields */}
-            {mode === "signup" && (
-              <>
-                <TextInput
-                  placeholder="Name"
-                  autoCapitalize="words"
-                  style={styles.input}
-                  value={name}
-                  onChangeText={setName}
-                />
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={styles.menuIcon}>
+              <Shield size={20} color="#374151" />
+            </View>
+            <Text style={styles.menuText}>Privacy & Security</Text>
+          </TouchableOpacity>
+        </View>
 
-                <TextInput
-                  placeholder="Age (optional)"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                  value={age}
-                  onChangeText={setAge}
-                />
-
-                <TextInput
-                  placeholder="Weight (optional)"
-                  keyboardType="number-pad"
-                  style={styles.input}
-                  value={weight}
-                  onChangeText={setWeight}
-                />
-              </>
-            )}
-
-            {/* Always for both modes */}
-            <TextInput
-              placeholder="Email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-            />
-
-            <TextInput
-              placeholder="Password"
-              secureTextEntry
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-            />
-
-            {/* Single primary button */}
-            <TouchableOpacity
-              style={styles.primaryButtonFull}
-              onPress={mode === "signin" ? handleSignIn : handleSignUp}
-              disabled={loading}
-            >
-              <Text style={styles.primaryButtonText}>
-                {loading
-                  ? "..."
-                  : mode === "signin"
-                    ? "Sign in"
-                    : "Create account"}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Switch hint */}
-            <TouchableOpacity
-              onPress={() => setMode(mode === "signin" ? "signup" : "signin")}
-              disabled={loading}
-              style={{ marginTop: 10 }}
-            >
-              <Text style={styles.switchText}>
-                {mode === "signin"
-                  ? "Don’t have an account?  Sign up"
-                  : "Already have an account?  Sign in"}
-              </Text>
-            </TouchableOpacity>
-
-            {error && <Text style={styles.errorText}>{error}</Text>}
-          </View>
-        )}
-
-        {/* ACCOUNT SECTION */}
-        {isLoggedIn && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={styles.menuIcon}>
-                <User size={20} color="#374151" />
-              </View>
-              <Text style={styles.menuText}>Personal Information</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={styles.menuIcon}>
-                <Bell size={20} color="#374151" />
-              </View>
-              <Text style={styles.menuText}>Notifications</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.menuItem}>
-              <View style={styles.menuIcon}>
-                <Shield size={20} color="#374151" />
-              </View>
-              <Text style={styles.menuText}>Privacy & Security</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* CONNECTIONS SECTION */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Connections</Text>
 
@@ -495,7 +247,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* RESOURCES SECTION */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Resources</Text>
 
@@ -524,23 +275,17 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* LOGOUT */}
-        {isLoggedIn && (
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={styles.logoutButton}
-              onPress={handleLogout}
-              disabled={loading}
-            >
-              <LogOut size={20} color="#EF4444" />
-              <Text style={styles.logoutText}>
-                {loading ? "..." : "Log Out"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            disabled={loading}
+          >
+            <LogOut size={20} color="#EF4444" />
+            <Text style={styles.logoutText}>{loading ? "..." : "Log Out"}</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* FOOTER */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>SOLACE v1.0.0</Text>
           <Text style={styles.footerText}>Made by Aanjaneya and Aditya</Text>
@@ -593,58 +338,6 @@ const styles = StyleSheet.create({
     color: "#111827",
     marginBottom: 12,
   },
-
-  // ✅ Professional mode toggle
-  modeToggle: {
-    flexDirection: "row",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    padding: 4,
-    marginBottom: 14,
-  },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  modeBtnActive: {
-    backgroundColor: "#FFFFFF",
-    elevation: 1,
-  },
-  modeBtnText: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
-  modeBtnTextActive: { color: "#111827" },
-
-  formTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
-  formSubtitle: {
-    marginTop: 4,
-    marginBottom: 12,
-    fontSize: 13,
-    color: "#6B7280",
-  },
-
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 10,
-  },
-
-  primaryButtonFull: {
-    backgroundColor: "#10B981",
-    paddingVertical: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    marginTop: 4,
-  },
-  primaryButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
-
-  switchText: { textAlign: "center", fontSize: 13, color: "#374151" },
-
-  errorText: { marginTop: 10, color: "#B91C1C", fontSize: 13 },
 
   menuItem: {
     flexDirection: "row",
