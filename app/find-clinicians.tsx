@@ -11,23 +11,26 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import ProviderMap from "../components/ProviderMap";
 
 type Provider = {
   id: string;
   name: string;
   typeLabel: string;
   address: string;
-  phone?: string;
-  website?: string;
-  openingHours?: string;
   lat?: number;
   lon?: number;
   distanceKm?: number;
-  source: "Nearby" | "Featured";
+  openNow?: boolean;
+  rating?: number;
+  userRatingsTotal?: number;
+  phone?: string;
+  website?: string;
 };
 
+type ViewMode = "list" | "map";
 type SortMode = "distance" | "name";
 
 function kmDistance(aLat: number, aLon: number, bLat: number, bLon: number) {
@@ -43,20 +46,19 @@ function kmDistance(aLat: number, aLon: number, bLat: number, bLon: number) {
 }
 
 function googleMapsSearchUrl(name: string, address: string) {
-  const q = encodeURIComponent(`${name} ${address}`);
+  const q = encodeURIComponent(`${name} ${address}`.trim());
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
 }
 
-async function openGoogleMaps(name: string, address: string) {
+async function openGoogleMapsSearch(name: string, address: string) {
   const url = googleMapsSearchUrl(name, address);
   const can = await Linking.canOpenURL(url);
   if (can) return Linking.openURL(url);
   return Linking.openURL(
-    `https://www.google.com/search?q=${encodeURIComponent(`${name} ${address}`)}`,
+    `https://www.google.com/search?q=${encodeURIComponent(`${name} ${address}`.trim())}`,
   );
 }
 
-// ---- OSM helpers ----
 function buildAddress(tags: any) {
   const parts = [
     tags?.["addr:housenumber"],
@@ -65,34 +67,74 @@ function buildAddress(tags: any) {
     tags?.["addr:state"],
     tags?.["addr:postcode"],
   ].filter(Boolean);
-  return parts.length
-    ? parts.join(" ")
-    : (tags?.address ?? "Address not available");
+  if (parts.length) return parts.join(" ");
+  return tags?.address || tags?.["contact:address"] || "Address not available";
 }
 
 function normalizeType(tags: any) {
-  const hc = (tags?.healthcare || "").toString().toLowerCase();
-  const spec = (tags?.["healthcare:speciality"] || tags?.speciality || "")
-    .toString()
-    .toLowerCase();
-  const amenity = (tags?.amenity || "").toString().toLowerCase();
+  const hc = String(tags?.healthcare || "").toLowerCase();
+  const spec = String(
+    tags?.["healthcare:speciality"] || tags?.speciality || "",
+  ).toLowerCase();
+  const amenity = String(tags?.amenity || "").toLowerCase();
 
   if (hc.includes("psychotherapist")) return "Psychotherapist";
   if (hc.includes("counselling") || hc.includes("counseling"))
     return "Counselling";
-  if (spec.includes("psychiatry")) return "Psychiatry";
-  if (spec.includes("psychotherapy")) return "Psychotherapy";
-  if (spec.includes("psychology")) return "Psychology";
-  if (amenity === "doctors") return "Doctor";
+  if (spec.includes("psychiatry")) return "Psychiatrist";
+  if (spec.includes("psychology")) return "Psychologist";
+  if (spec.includes("psychotherapy")) return "Psychotherapist";
   if (amenity === "clinic") return "Clinic";
+  if (amenity === "doctors") return "Doctor";
   return "Mental Health Provider";
 }
 
-async function overpassMentalHealthNearby(
+function mappedFromElements(
+  elements: any[],
   lat: number,
   lon: number,
-  radiusMeters: number,
+): Provider[] {
+  const mapped: Provider[] = elements
+    .map((el: any) => {
+      const tags = el.tags || {};
+      const name = tags.name || tags.operator || "Unknown Provider";
+      const pLat = el.type === "node" ? el.lat : el.center?.lat;
+      const pLon = el.type === "node" ? el.lon : el.center?.lon;
+
+      const latOk = typeof pLat === "number";
+      const lonOk = typeof pLon === "number";
+
+      const distanceKm =
+        latOk && lonOk ? kmDistance(lat, lon, pLat, pLon) : undefined;
+
+      return {
+        id: `osm-${el.type}-${el.id}`,
+        name,
+        typeLabel: normalizeType(tags),
+        address: buildAddress(tags),
+        lat: latOk ? pLat : undefined,
+        lon: lonOk ? pLon : undefined,
+        distanceKm,
+        phone: tags.phone || tags["contact:phone"],
+        website: tags.website || tags["contact:website"],
+      };
+    })
+    .filter((p, idx, arr) => {
+      const key = `${p.name}__${p.address}`;
+      return arr.findIndex((x) => `${x.name}__${x.address}` === key) === idx;
+    })
+    .sort((a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999));
+
+  return mapped;
+}
+
+async function fetchOverpassMentalHealth(
+  lat: number,
+  lon: number,
+  radiusKm: number,
 ) {
+  const radiusMeters = Math.round(radiusKm * 1000);
+
   const query = `
 [out:json][timeout:25];
 (
@@ -104,112 +146,145 @@ async function overpassMentalHealthNearby(
   way(around:${radiusMeters},${lat},${lon})["healthcare"="counselling"];
   relation(around:${radiusMeters},${lat},${lon})["healthcare"="counselling"];
 
-  node(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
-  way(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
-  relation(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
+  node(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
+  way(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
+  relation(around:${radiusMeters},${lat},${lon})["amenity"="doctors"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
 
-  node(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
-  way(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
-  relation(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychotherapy|psychology",i];
+  node(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
+  way(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
+  relation(around:${radiusMeters},${lat},${lon})["amenity"="clinic"]["healthcare:speciality"~"psychiatry|psychology|psychotherapy",i];
 );
 out center tags;`;
 
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    headers: { "Content-Type": "text/plain" },
-    body: query,
-  });
+  const endpoints = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.nchc.org.tw/api/interpreter",
+  ];
 
-  if (!res.ok) throw new Error(`Overpass failed: ${res.status}`);
-  const data = await res.json();
-  return Array.isArray(data?.elements) ? data.elements : [];
+  let lastErr: any = null;
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain" },
+        body: query,
+      });
+
+      if (!res.ok) throw new Error(`Overpass failed: ${res.status}`);
+
+      const json = await res.json();
+      const elements = Array.isArray(json?.elements) ? json.elements : [];
+      return mappedFromElements(elements, lat, lon);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  throw lastErr || new Error("Overpass request failed");
 }
 
-function mapOverpassToProviders(
-  elements: any[],
-  userLat: number,
-  userLon: number,
-): Provider[] {
-  const mapped = elements
-    .map((el: any) => {
-      const tags = el.tags || {};
-      const name =
-        tags.name || tags.operator || tags.brand || "Unknown Provider";
+function ProviderCard({
+  item,
+  onDetails,
+  onOpen,
+}: {
+  item: Provider;
+  onDetails: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <View style={styles.cardPremium}>
+      <View style={styles.cardAccent} />
 
-      const lat = el.type === "node" ? el.lat : el.center?.lat;
-      const lon = el.type === "node" ? el.lon : el.center?.lon;
+      <View style={styles.cardBody}>
+        <View style={styles.cardTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {item.name}
+            </Text>
 
-      const address = buildAddress(tags);
-      const typeLabel = normalizeType(tags);
-      const phone = tags.phone || tags["contact:phone"];
-      const website = tags.website || tags["contact:website"];
-      const openingHours = tags.opening_hours;
+            <View style={styles.subRow}>
+              <View style={styles.typePill}>
+                <Text style={styles.typePillText} numberOfLines={1}>
+                  {item.typeLabel}
+                </Text>
+              </View>
 
-      const distanceKm =
-        typeof lat === "number" && typeof lon === "number"
-          ? kmDistance(userLat, userLon, lat, lon)
-          : undefined;
+              {typeof item.distanceKm === "number" ? (
+                <View style={styles.distancePill}>
+                  <Text style={styles.distanceText}>
+                    {item.distanceKm.toFixed(1)} km
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
 
-      return {
-        id: `osm-${el.type}-${el.id}`,
-        name,
-        typeLabel,
-        address,
-        phone,
-        website,
-        openingHours,
-        lat,
-        lon,
-        distanceKm,
-        source: "Nearby",
-      } satisfies Provider;
-    })
-    // de-dupe by name+address
-    .filter((p, idx, arr) => {
-      const key = `${p.name}__${p.address}`;
-      return arr.findIndex((x) => `${x.name}__${x.address}` === key) === idx;
-    });
+        <Text style={styles.cardAddress} numberOfLines={2}>
+          {item.address}
+        </Text>
 
-  return mapped;
+        <View style={styles.cardActionsRow}>
+          <TouchableOpacity
+            style={styles.btnGhost}
+            onPress={onDetails}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.btnGhostText}>Details</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.btnPrimary}
+            onPress={onOpen}
+            activeOpacity={0.9}
+          >
+            <Text style={styles.btnPrimaryText}>View Profile</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
 }
 
-// ---- Featured (curated) ----
-// ✅ Professional approach: replace this with Firestore fetch later.
-// For now, we keep a tiny fallback so app NEVER feels empty.
-const FEATURED_FALLBACK: Provider[] = [
-  {
-    id: "featured-1",
-    name: "Mindful Path Counselling",
-    typeLabel: "Counselling",
-    address: "Featured provider (shows when curated list is empty)",
-    source: "Featured",
-    website: "https://www.google.com",
-  },
-  {
-    id: "featured-2",
-    name: "CalmBridge Therapy",
-    typeLabel: "Psychotherapist",
-    address: "Featured provider (replace via Firestore)",
-    source: "Featured",
-  },
-];
-
-export default function FindMentalHealthCliniciansPro() {
+export default function FindClinicians() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [selected, setSelected] = useState<Provider | null>(null);
+
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLon, setUserLon] = useState<number | null>(null);
 
-  const [radiusKm, setRadiusKm] = useState(10);
-  const [sortMode, setSortMode] = useState<SortMode>("distance");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [searchText, setSearchText] = useState("");
+  const [radiusKm, setRadiusKm] = useState(15);
+  const [sortMode, setSortMode] = useState<SortMode>("distance");
 
-  const [nearby, setNearby] = useState<Provider[]>([]);
-  const [featured, setFeatured] = useState<Provider[]>(FEATURED_FALLBACK);
+  const filtered = useMemo(() => {
+    const s = searchText.trim().toLowerCase();
+    let list = providers;
 
-  const [selected, setSelected] = useState<Provider | null>(null);
+    if (s) {
+      list = list.filter((p) =>
+        `${p.name} ${p.typeLabel} ${p.address}`.toLowerCase().includes(s),
+      );
+    }
 
-  const loadNearby = async () => {
+    if (sortMode === "name") {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    } else {
+      list = [...list].sort(
+        (a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999),
+      );
+    }
+
+    return list;
+  }, [providers, searchText, sortMode]);
+
+  const load = async () => {
     setLoading(true);
     setErrorMsg("");
 
@@ -223,409 +298,276 @@ export default function FindMentalHealthCliniciansPro() {
 
       const lat = loc.coords.latitude;
       const lon = loc.coords.longitude;
+
       setUserLat(lat);
       setUserLon(lon);
 
-      const elements = await overpassMentalHealthNearby(
-        lat,
-        lon,
-        radiusKm * 1000,
-      );
-      const mapped = mapOverpassToProviders(elements, lat, lon);
-
-      setNearby(mapped);
+      const items = await fetchOverpassMentalHealth(lat, lon, radiusKm);
+      setProviders(items);
     } catch (e: any) {
-      setNearby([]);
-      setErrorMsg(e?.message || "Could not load nearby providers.");
+      setProviders([]);
+      setErrorMsg(e?.message || "Failed to load providers.");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadNearby();
-    // Later: also fetch Featured from Firestore based on country/province/city
-    // If fetched list is empty, keep fallback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const filteredNearby = useMemo(() => {
-    let list = nearby;
-    const s = searchText.trim().toLowerCase();
-    if (s)
-      list = list.filter((p) =>
-        `${p.name} ${p.typeLabel} ${p.address}`.toLowerCase().includes(s),
-      );
-
-    if (sortMode === "name") {
-      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      list = [...list].sort(
-        (a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999),
-      );
-    }
-    return list;
-  }, [nearby, searchText, sortMode]);
+    load();
+  }, [radiusKm]);
 
   if (loading) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>
-          Scanning mental health providers near you…
-        </Text>
+        <Text style={{ marginTop: 10 }}>Loading</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Premium Header */}
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Find Care</Text>
-          <Text style={styles.headerSubtitle}>
-            Nearby counselling • psychotherapy • psychiatry
-          </Text>
-        </View>
-        <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>PRO</Text>
-        </View>
-      </View>
+    <View style={styles.page}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Find Care</Text>
 
-      {/* Controls */}
-      <View style={styles.controlsCard}>
-        <TextInput
-          value={searchText}
-          onChangeText={setSearchText}
-          placeholder="Search by name, type, area…"
-          style={styles.search}
-          placeholderTextColor="#8a8f98"
-        />
+          <View style={styles.toggleWrap}>
+            <TouchableOpacity
+              style={[
+                styles.toggleBtn,
+                viewMode === "list" && styles.toggleActive,
+              ]}
+              onPress={() => setViewMode("list")}
+              activeOpacity={0.9}
+            >
+              <Text
+                style={[
+                  styles.toggleText,
+                  viewMode === "list" && styles.toggleTextActive,
+                ]}
+              >
+                List
+              </Text>
+            </TouchableOpacity>
 
-        <View style={styles.chipsRow}>
-          <Chip
-            label={`Radius ${radiusKm} km`}
-            onPress={() =>
-              setRadiusKm((r) => (r === 5 ? 10 : r === 10 ? 20 : 5))
-            }
-          />
-          <Chip
-            label={`Sort ${sortMode === "distance" ? "Distance" : "Name"}`}
-            onPress={() =>
-              setSortMode((m) => (m === "distance" ? "name" : "distance"))
-            }
-          />
-          <ChipPrimary label="Scan" onPress={loadNearby} />
+            <TouchableOpacity
+              style={[
+                styles.toggleBtn,
+                viewMode === "map" && styles.toggleActive,
+              ]}
+              onPress={() => setViewMode("map")}
+              activeOpacity={0.9}
+            >
+              <Text
+                style={[
+                  styles.toggleText,
+                  viewMode === "map" && styles.toggleTextActive,
+                ]}
+              >
+                Map
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {errorMsg ? <Text style={styles.error}>{errorMsg}</Text> : null}
-        {userLat && userLon ? (
-          <Text style={styles.mini}>
-            Location: {userLat.toFixed(3)}, {userLon.toFixed(3)}
-          </Text>
-        ) : null}
-      </View>
 
-      {/* Featured Section */}
-      <SectionTitle
-        title="Featured Practitioners"
-        subtitle="More options you can trust"
-      />
-      <FlatList
-        data={featured}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingVertical: 8 }}
-        renderItem={({ item }) => (
-          <FeaturedCard
-            provider={item}
-            onDetails={() => setSelected(item)}
-            onOpen={() => openGoogleMaps(item.name, item.address)}
+        <View style={styles.controlsCard}>
+          <TextInput
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="Search name, type, area"
+            style={styles.search}
+            placeholderTextColor="#8a8f98"
           />
-        )}
-      />
 
-      {/* Nearby Section */}
-      <SectionTitle
-        title="Nearby Providers"
-        subtitle={
-          filteredNearby.length
-            ? `${filteredNearby.length} results near you`
-            : "Try increasing radius"
-        }
-      />
-
-      {filteredNearby.length === 0 ? (
-        <EmptyState onScan={loadNearby} />
-      ) : (
-        <FlatList
-          data={filteredNearby}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingBottom: 18 }}
-          renderItem={({ item }) => (
-            <ProviderCard
-              provider={item}
-              onDetails={() => setSelected(item)}
-              onOpen={() => openGoogleMaps(item.name, item.address)}
-            />
-          )}
-        />
-      )}
-
-      {/* Details Modal */}
-      <Modal
-        visible={!!selected}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelected(null)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setSelected(null)}
-        />
-        <View style={styles.modalSheet}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>{selected?.name}</Text>
-          <Text style={styles.modalType}>{selected?.typeLabel}</Text>
-
-          <Text style={styles.modalLine}>{selected?.address}</Text>
-          {!!selected?.distanceKm && (
-            <Text style={styles.modalLine}>
-              Distance: {selected.distanceKm.toFixed(1)} km
-            </Text>
-          )}
-          {!!selected?.openingHours && (
-            <Text style={styles.modalLine}>Hours: {selected.openingHours}</Text>
-          )}
-          {!!selected?.phone && (
-            <Text style={styles.modalLine}>Phone: {selected.phone}</Text>
-          )}
-          {!!selected?.website && (
-            <Text style={styles.modalLine}>Website: {selected.website}</Text>
-          )}
-
-          <View style={styles.modalActions}>
+          <View style={styles.chipsRow}>
             <TouchableOpacity
-              style={styles.modalBtnGhost}
-              onPress={() => setSelected(null)}
-              activeOpacity={0.9}
-            >
-              <Text style={styles.modalBtnGhostText}>Close</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.modalBtnPrimary}
+              style={styles.chip}
               onPress={() =>
-                selected && openGoogleMaps(selected.name, selected.address)
+                setRadiusKm((r) => (r === 10 ? 15 : r === 15 ? 25 : 10))
               }
               activeOpacity={0.9}
             >
-              <Text style={styles.modalBtnPrimaryText}>Open in Google</Text>
+              <Text style={styles.chipText}>Radius {radiusKm} km</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.chip}
+              onPress={() =>
+                setSortMode((m) => (m === "distance" ? "name" : "distance"))
+              }
+              activeOpacity={0.9}
+            >
+              <Text style={styles.chipText}>
+                Sort {sortMode === "distance" ? "Distance" : "Name"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.chipPrimary}
+              onPress={load}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.chipPrimaryText}>Scan</Text>
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-    </View>
-  );
-}
 
-function SectionTitle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <View style={{ marginTop: 6 }}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <Text style={styles.sectionSubtitle}>{subtitle}</Text>
-    </View>
-  );
-}
-
-function Chip({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={styles.chip}
-      activeOpacity={0.85}
-    >
-      <Text style={styles.chipText}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function ChipPrimary({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={styles.chipPrimary}
-      activeOpacity={0.9}
-    >
-      <Text style={styles.chipPrimaryText}>{label}</Text>
-    </TouchableOpacity>
-  );
-}
-
-function FeaturedCard({
-  provider,
-  onDetails,
-  onOpen,
-}: {
-  provider: Provider;
-  onDetails: () => void;
-  onOpen: () => void;
-}) {
-  return (
-    <View style={styles.featuredCard}>
-      <View style={styles.featuredTop}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {provider.name.slice(0, 1).toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.featuredPill}>
-          <Text style={styles.featuredPillText}>{provider.typeLabel}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.featuredName} numberOfLines={1}>
-        {provider.name}
-      </Text>
-      <Text style={styles.featuredAddr} numberOfLines={2}>
-        {provider.address}
-      </Text>
-
-      <View style={styles.cardActionsRow}>
-        <TouchableOpacity
-          style={styles.btnGhostSmall}
-          onPress={onDetails}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.btnGhostSmallText}>Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.btnPrimarySmall}
-          onPress={onOpen}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.btnPrimarySmallText}>View</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-function ProviderCard({
-  provider,
-  onDetails,
-  onOpen,
-}: {
-  provider: Provider;
-  onDetails: () => void;
-  onOpen: () => void;
-}) {
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardTop}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{provider.name}</Text>
-          <Text style={styles.type}>{provider.typeLabel}</Text>
-        </View>
-
-        {provider.distanceKm != null ? (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>
-              {provider.distanceKm.toFixed(1)} km
+        {viewMode === "map" ? (
+          userLat != null && userLon != null ? (
+            <ProviderMap
+              userLat={userLat}
+              userLon={userLon}
+              radiusKm={radiusKm}
+              providers={filtered}
+              onSelect={(p: Provider) => setSelected(p)}
+            />
+          ) : (
+            <View style={styles.webMapCard}>
+              <Text style={styles.webMapTitle}>Location not available</Text>
+              <Text style={styles.webMapSub}>
+                Enable location services and try again.
+              </Text>
+              <TouchableOpacity
+                style={styles.btnPrimary}
+                onPress={load}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.btnPrimaryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        ) : filtered.length === 0 ? (
+          <View style={styles.webMapCard}>
+            <Text style={styles.webMapTitle}>No results found</Text>
+            <Text style={styles.webMapSub}>
+              Try increasing the radius and scan again.
             </Text>
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={load}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.btnPrimaryText}>Scan</Text>
+            </TouchableOpacity>
           </View>
-        ) : null}
-      </View>
+        ) : (
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingBottom: 18 }}
+            refreshing={loading}
+            onRefresh={load}
+            renderItem={({ item }) => (
+              <ProviderCard
+                item={item}
+                onDetails={() => setSelected(item)}
+                onOpen={() => openGoogleMapsSearch(item.name, item.address)}
+              />
+            )}
+          />
+        )}
 
-      <Text style={styles.meta}>{provider.address}</Text>
-
-      {!!provider.openingHours && (
-        <Text style={styles.metaSmall}>Hours: {provider.openingHours}</Text>
-      )}
-
-      <View style={styles.cardActions}>
-        <TouchableOpacity
-          style={styles.btnGhost}
-          onPress={onDetails}
-          activeOpacity={0.85}
+        <Modal
+          visible={!!selected}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setSelected(null)}
         >
-          <Text style={styles.btnGhostText}>Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.btnPrimary}
-          onPress={onOpen}
-          activeOpacity={0.9}
-        >
-          <Text style={styles.btnPrimaryText}>View Profile</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setSelected(null)}
+          />
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>{selected?.name}</Text>
+            <Text style={styles.modalLine}>{selected?.typeLabel}</Text>
+            <Text style={styles.modalLine}>{selected?.address}</Text>
 
-function EmptyState({ onScan }: { onScan: () => void }) {
-  return (
-    <View style={styles.emptyWrap}>
-      <Text style={styles.emptyTitle}>No results in this radius</Text>
-      <Text style={styles.emptyText}>
-        Try a bigger radius or scan again. Some areas have fewer listings.
-      </Text>
-      <TouchableOpacity
-        style={styles.emptyBtn}
-        onPress={onScan}
-        activeOpacity={0.9}
-      >
-        <Text style={styles.emptyBtnText}>Scan Nearby</Text>
-      </TouchableOpacity>
+            {selected?.phone ? (
+              <Text style={styles.modalLine}>Phone: {selected.phone}</Text>
+            ) : null}
+            {selected?.website ? (
+              <Text style={styles.modalLine}>Website: {selected.website}</Text>
+            ) : null}
+            {typeof selected?.distanceKm === "number" ? (
+              <Text style={styles.modalLine}>
+                Distance: {selected.distanceKm.toFixed(1)} km
+              </Text>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.btnGhost}
+                onPress={() => setSelected(null)}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.btnGhostText}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.btnPrimary}
+                onPress={() =>
+                  selected &&
+                  openGoogleMapsSearch(selected.name, selected.address)
+                }
+                activeOpacity={0.9}
+              >
+                <Text style={styles.btnPrimaryText}>Open in Google</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F7F8FC", padding: 16 },
+  page: {
+    flex: 1,
+    backgroundColor: "#F7F8FC",
+    alignItems: Platform.OS === "web" ? "center" : "stretch",
+  },
+  container: {
+    flex: 1,
+    backgroundColor: "#F7F8FC",
+    padding: 16,
+    width: "100%",
+    maxWidth: Platform.OS === "web" ? 980 : undefined,
+  },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 10, color: "#4b5563", fontWeight: "700" },
 
   header: {
-    backgroundColor: "#111827",
-    borderRadius: 18,
-    padding: 14,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
+    justifyContent: "space-between",
+    marginBottom: 10,
   },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  headerSubtitle: { color: "#cbd5e1", marginTop: 4, fontWeight: "600" },
-  headerBadge: {
-    backgroundColor: "#3B82F6",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+  title: { fontSize: 20, fontWeight: "900", color: "#111827" },
+
+  toggleWrap: {
+    flexDirection: "row",
+    backgroundColor: "#EEF2FF",
+    borderRadius: 14,
+    padding: 4,
   },
-  headerBadgeText: { color: "#fff", fontWeight: "900", fontSize: 12 },
+  toggleBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12 },
+  toggleActive: { backgroundColor: "#3B82F6" },
+  toggleText: { fontWeight: "900", color: "#111827", fontSize: 12 },
+  toggleTextActive: { color: "#fff" },
+
+  error: { color: "#b00020", fontWeight: "800", marginBottom: 10 },
 
   controlsCard: {
     backgroundColor: "#fff",
     borderRadius: 18,
     padding: 12,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 14,
     elevation: 3,
-    marginBottom: 10,
   },
   search: {
     backgroundColor: "#F1F5FF",
@@ -636,11 +578,13 @@ const styles = StyleSheet.create({
     color: "#111827",
     fontWeight: "700",
   },
+
   chipsRow: {
     flexDirection: "row",
     gap: 8,
     marginTop: 10,
     alignItems: "center",
+    flexWrap: "wrap",
   },
   chip: {
     backgroundColor: "#F1F5FF",
@@ -657,108 +601,72 @@ const styles = StyleSheet.create({
   },
   chipPrimaryText: { fontWeight: "900", color: "#fff", fontSize: 12 },
 
-  error: { marginTop: 10, color: "#b00020", fontWeight: "800" },
-  mini: { marginTop: 8, color: "#6b7280", fontSize: 12, fontWeight: "700" },
-
-  sectionTitle: {
-    marginTop: 8,
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#111827",
-  },
-  sectionSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6b7280",
-  },
-
-  featuredCard: {
-    width: 240,
+  webMapCard: {
     backgroundColor: "#fff",
     borderRadius: 18,
-    padding: 12,
-    marginRight: 12,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  featuredTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#111827",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatarText: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  featuredPill: {
-    backgroundColor: "#EEF2FF",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  featuredPillText: { fontWeight: "900", color: "#1D4ED8", fontSize: 12 },
-  featuredName: {
-    marginTop: 10,
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#111827",
-  },
-  featuredAddr: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6b7280",
-    lineHeight: 16,
-  },
-
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
+    padding: 16,
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 14,
     elevation: 3,
   },
-  cardTop: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
-  name: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  type: { marginTop: 4, fontSize: 13, fontWeight: "900", color: "#2563EB" },
-  badge: {
+  webMapTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  webMapSub: {
+    marginTop: 6,
+    color: "#6b7280",
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+
+  cardPremium: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    marginBottom: 12,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 3,
+  },
+  cardAccent: { height: 4, backgroundColor: "#3B82F6" },
+  cardBody: { padding: 16 },
+  cardTopRow: { flexDirection: "row", alignItems: "flex-start" },
+  cardTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
+  subRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  typePill: {
     backgroundColor: "#EEF2FF",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
   },
-  badgeText: { fontSize: 12, fontWeight: "900", color: "#1D4ED8" },
-  meta: {
-    marginTop: 8,
+  typePillText: { fontSize: 12, fontWeight: "900", color: "#1D4ED8" },
+  distancePill: {
+    backgroundColor: "#F1F5FF",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  distanceText: { fontSize: 12, fontWeight: "900", color: "#111827" },
+  cardAddress: {
+    marginTop: 10,
     color: "#374151",
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 18,
   },
-  metaSmall: {
-    marginTop: 6,
-    color: "#6b7280",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  cardActionsRow: { flexDirection: "row", gap: 10, marginTop: 14 },
 
-  cardActions: { flexDirection: "row", gap: 10, marginTop: 12 },
   btnGhost: {
     flex: 1,
     borderRadius: 14,
-    backgroundColor: "#F1F5FF",
-    paddingVertical: 11,
+    backgroundColor: "#EEF2FF",
+    paddingVertical: 12,
     alignItems: "center",
   },
   btnGhostText: { fontWeight: "900", color: "#111827" },
@@ -766,52 +674,10 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 14,
     backgroundColor: "#3B82F6",
-    paddingVertical: 11,
+    paddingVertical: 12,
     alignItems: "center",
   },
   btnPrimaryText: { fontWeight: "900", color: "#fff" },
-
-  cardActionsRow: { flexDirection: "row", gap: 10, marginTop: 12 },
-  btnGhostSmall: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: "#F1F5FF",
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  btnGhostSmallText: { fontWeight: "900", color: "#111827", fontSize: 12 },
-  btnPrimarySmall: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: "#3B82F6",
-    paddingVertical: 10,
-    alignItems: "center",
-  },
-  btnPrimarySmallText: { fontWeight: "900", color: "#fff", fontSize: 12 },
-
-  emptyWrap: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 16,
-    marginTop: 10,
-    alignItems: "center",
-  },
-  emptyTitle: { fontSize: 16, fontWeight: "900", color: "#111827" },
-  emptyText: {
-    marginTop: 6,
-    textAlign: "center",
-    color: "#6b7280",
-    fontWeight: "700",
-    lineHeight: 18,
-  },
-  emptyBtn: {
-    marginTop: 12,
-    backgroundColor: "#3B82F6",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-  },
-  emptyBtnText: { color: "#fff", fontWeight: "900" },
 
   modalBackdrop: {
     position: "absolute",
@@ -827,50 +693,15 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 18,
     backgroundColor: "#fff",
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 14,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 6,
-  },
-  modalHandle: {
-    width: 44,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: "#e6e6e6",
-    alignSelf: "center",
-    marginBottom: 10,
   },
   modalTitle: { fontSize: 18, fontWeight: "900", color: "#111827" },
-  modalType: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: "900",
-    color: "#2563EB",
-  },
   modalLine: {
-    marginTop: 8,
+    marginTop: 6,
     color: "#374151",
     fontSize: 13,
     fontWeight: "700",
-    lineHeight: 18,
   },
-  modalActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  modalBtnGhost: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: "#F1F5FF",
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  modalBtnGhostText: { fontWeight: "900", color: "#111827" },
-  modalBtnPrimary: {
-    flex: 1,
-    borderRadius: 14,
-    backgroundColor: "#3B82F6",
-    paddingVertical: 11,
-    alignItems: "center",
-  },
-  modalBtnPrimaryText: { fontWeight: "900", color: "#fff" },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 12 },
 });
