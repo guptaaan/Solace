@@ -1,3 +1,4 @@
+// app/(auth)/index.tsx
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -15,25 +16,22 @@ import { auth, db } from "@/constants/firebase";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signOut,
   updateProfile,
 } from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 type Mode = "signin" | "signup";
-
 const { width } = Dimensions.get("window");
 
 export default function AuthScreen() {
   const router = useRouter();
-
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [weight, setWeight] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,37 +76,64 @@ export default function AuthScreen() {
         useNativeDriver: true,
       }),
     ).start();
-  }, [fadeAnim, slideAnim, pulseAnim, shimmerAnim]);
+  }, []);
 
-  const goIntoApp = () => {
-    router.replace("/(tabs)/insights" as any);
+  const validateEmailPass = () => {
+    if (!email.trim()) return "Please enter your email.";
+    if (!password) return "Please enter your password.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+    return null;
   };
 
   const handlePrimary = async () => {
     setError(null);
-    setLoading(true);
+    const baseErr = validateEmailPass();
+    if (baseErr) {
+      setError(baseErr);
+      return;
+    }
 
+    setLoading(true);
     try {
+      // ── SIGN IN ──────────────────────────────────────────────────────────
       if (mode === "signin") {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-        goIntoApp();
+        const res = await signInWithEmailAndPassword(
+          auth,
+          email.trim(),
+          password,
+        );
+
+        // Check onboarding status — but don't block sign-in if Firestore is slow
+        try {
+          const snap = await Promise.race([
+            getDoc(doc(db, "users", res.user.uid)),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), 4000),
+            ),
+          ]);
+
+          if (snap && "exists" in snap && snap.exists()) {
+            const data = snap.data();
+            if (data?.onboardingComplete === false) {
+              router.replace("/(auth)/sleep-onboarding" as any);
+              return;
+            }
+          }
+        } catch {
+          // Firestore check failed — safe to continue to profile
+        }
+
+        router.replace("/(tabs)/profile" as any);
         return;
       }
 
+      // ── SIGN UP ──────────────────────────────────────────────────────────
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError("Please enter your name to sign up.");
         setLoading(false);
         return;
       }
-
-      const cred = await createUserWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password,
-      );
-
-      await updateProfile(cred.user, { displayName: trimmedName });
 
       const parsedAge = age.trim() ? Number(age.trim()) : null;
       const parsedWeight = weight.trim() ? Number(weight.trim()) : null;
@@ -124,22 +149,54 @@ export default function AuthScreen() {
         return;
       }
 
-      await setDoc(
+      // 1. Create the Firebase Auth user
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password,
+      );
+
+      // 2. Update display name
+      await updateProfile(cred.user, { displayName: trimmedName });
+
+      // 3. Write Firestore doc — fire and don't await (avoid timeout blocking navigation)
+      //    We navigate immediately; onboarding screen will still find onboardingComplete: false
+      //    even if the write hasn't finished yet because we route directly there.
+      setDoc(
         doc(db, "users", cred.user.uid),
         {
           name: trimmedName,
           age: parsedAge,
           weight: parsedWeight,
           createdAt: serverTimestamp(),
+          onboardingComplete: false,
         },
         { merge: true },
-      );
+      ).catch(() => {
+        // Non-blocking — layout will still route correctly
+      });
 
-      goIntoApp();
+      // 4. Go straight to onboarding — don't wait for Firestore
+      router.replace("/(auth)/sleep-onboarding" as any);
     } catch (e: any) {
-      setError(
-        e?.message ?? (mode === "signin" ? "Sign in failed" : "Sign up failed"),
-      );
+      const msg = e?.message ?? "";
+
+      // Make Firebase errors friendlier
+      if (msg.includes("email-already-in-use")) {
+        setError("An account with this email already exists. Try signing in.");
+      } else if (
+        msg.includes("user-not-found") ||
+        msg.includes("wrong-password") ||
+        msg.includes("invalid-credential")
+      ) {
+        setError("Incorrect email or password.");
+      } else if (msg.includes("network")) {
+        setError("Network error. Please check your connection and try again.");
+      } else {
+        setError(
+          msg || (mode === "signin" ? "Sign in failed." : "Sign up failed."),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -152,6 +209,23 @@ export default function AuthScreen() {
 
   return (
     <View style={styles.container}>
+      {auth.currentUser && (
+        <TouchableOpacity
+          style={styles.debugSignOut}
+          onPress={async () => {
+            await signOut(auth);
+            setError(null);
+            setEmail("");
+            setPassword("");
+            setName("");
+            setAge("");
+            setWeight("");
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 12 }}>Sign Out</Text>
+        </TouchableOpacity>
+      )}
+
       <Animated.View
         style={[
           styles.bgCircle,
@@ -239,6 +313,7 @@ export default function AuthScreen() {
               value={name}
               onChangeText={setName}
               autoCapitalize="words"
+              editable={!loading}
             />
             <View style={styles.row}>
               <TextInput
@@ -248,6 +323,7 @@ export default function AuthScreen() {
                 value={age}
                 onChangeText={setAge}
                 keyboardType="number-pad"
+                editable={!loading}
               />
               <TextInput
                 placeholder="Weight (lbs)"
@@ -256,6 +332,7 @@ export default function AuthScreen() {
                 value={weight}
                 onChangeText={setWeight}
                 keyboardType="number-pad"
+                editable={!loading}
               />
             </View>
           </Animated.View>
@@ -269,6 +346,7 @@ export default function AuthScreen() {
           onChangeText={setEmail}
           autoCapitalize="none"
           keyboardType="email-address"
+          editable={!loading}
         />
 
         <TextInput
@@ -278,6 +356,7 @@ export default function AuthScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          editable={!loading}
         />
 
         <TouchableOpacity
@@ -306,12 +385,6 @@ export default function AuthScreen() {
           agree to our terms.
         </Text>
       </Animated.View>
-
-      <View style={styles.footer}>
-        <View style={styles.footerDot} />
-        <View style={styles.footerDot} />
-        <View style={styles.footerDot} />
-      </View>
     </View>
   );
 }
@@ -322,6 +395,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F4F8",
     justifyContent: "center",
     padding: 24,
+  },
+  debugSignOut: {
+    position: "absolute",
+    top: 40,
+    right: 20,
+    backgroundColor: "#EF4444",
+    padding: 10,
+    borderRadius: 8,
+    zIndex: 999,
   },
   bgCircle: { position: "absolute", borderRadius: 999, opacity: 0.06 },
   bgCircle1: {
@@ -342,10 +424,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
     padding: 28,
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 24,
     elevation: 8,
   },
   header: { alignItems: "center", marginBottom: 8, overflow: "hidden" },
@@ -380,14 +458,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  toggleActive: {
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
+  toggleActive: { backgroundColor: "#FFFFFF", elevation: 3 },
   toggleText: { fontWeight: "600", color: "#94A3B8", fontSize: 15 },
   toggleTextActive: { color: "#7C3AED", fontWeight: "700" },
   row: { flexDirection: "row", gap: 12 },
@@ -409,11 +480,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     marginTop: 8,
-    shadowColor: "#7C3AED",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
   },
   primaryBtnDisabled: { opacity: 0.7 },
   primaryText: { color: "#fff", fontWeight: "700", fontSize: 16 },
@@ -432,17 +498,5 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     textAlign: "center",
     lineHeight: 18,
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    marginTop: 24,
-  },
-  footerDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#CBD5E1",
   },
 });

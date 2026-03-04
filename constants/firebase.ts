@@ -1,3 +1,4 @@
+// constants/firebase.ts
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   browserLocalPersistence,
