@@ -4,7 +4,7 @@ import { WellnessData } from './fitbit-api';
 export async function syncFitbitDataToAWS(
   userId: string,
   wellnessData: WellnessData[]
-): Promise<{ ok: true; status: number; body: any }>{
+): Promise<{ ok: true; status: number; body: any }> {
   try {
     const response = await fetch(ENDPOINTS.fitbit, {
       method: 'POST',

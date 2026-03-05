@@ -5,6 +5,7 @@ export const FITBIT_CONFIG = {
   authorizationUri: 'https://www.fitbit.com/oauth2/authorize',
   tokenUri: 'https://api.fitbit.com/oauth2/token',
   apiBaseUrl: 'https://api.fitbit.com/1/user/-',
+  apiBaseUrlSleep: 'https://api.fitbit.com/1.2/user/-',
   scopes: [
     'activity',
     'heartrate',

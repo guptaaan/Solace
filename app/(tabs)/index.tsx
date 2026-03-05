@@ -45,6 +45,17 @@ const STORAGE_KEYS = {
   DAILY_EXERCISES_IDS: "solace_daily_exercises_ids_v1",
 };
 
+const QUOTES: string[] = [
+  "One small step for your mind is still a step forward.",
+  "You do not have to feel okay to be doing your best.",
+  "Slow days still count. You showed up today.",
+  "Your feelings are valid. You are allowed to take up space.",
+  "Rest is productive when your mind is tired.",
+  "You have gotten through 100% of your hardest days so far.",
+  "Healing is not linear, but every check‑in is progress.",
+  "Being gentle with yourself is a form of strength.",
+];
+
 const TORONTO_TZ = "America/Toronto";
 
 function formatTorontoDateKey(d: Date) {
@@ -111,6 +122,21 @@ export default function MoodScreen() {
   // AWS mood submission (UNCHANGED LOGIC)
   // -----------------------------
   async function sendMood(mood: string) {
+    const successMessageForMood = (m: string): string => {
+      switch (m) {
+        case "great":
+          return "Love this energy — keep it up!";
+        case "good":
+          return "Nice, you’re doing well. Keep going.";
+        case "okay":
+          return "Thanks for checking in. Small steps still count.";
+        case "low":
+          return "Thank you for being honest. You’re not alone in this.";
+        default:
+          return "Mood saved. Thanks for checking in.";
+      }
+    };
+
     const payload = {
       userId: "test-user", // Later replace with Cognito ID
       date: new Date().toISOString().split("T")[0],
@@ -136,6 +162,9 @@ export default function MoodScreen() {
       }
 
       Alert.alert("Success", `Mood '${mood}' submitted!`);
+      const msg = successMessageForMood(mood);
+      setMoodFeedback({ mood, message: msg });
+      setTimeout(() => setMoodFeedback(null), 2000);
     } catch (err) {
       console.log("AWS ERROR ❌", err);
       Alert.alert("Error", "Could not submit your mood.");
@@ -157,6 +186,18 @@ export default function MoodScreen() {
   );
   const [quickActions, setQuickActions] = useState<Exercise[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
+
+  const [moodFeedback, setMoodFeedback] = useState<{
+    mood: string;
+    message: string;
+  } | null>(null);
+
+  const todayKey = formatTorontoDateKey(new Date());
+  const todaysQuote = useMemo(() => {
+    if (!QUOTES.length) return "";
+    const shuffled = seededShuffle(QUOTES, todayKey);
+    return shuffled[0];
+  }, [todayKey]);
 
   // Voice state
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -814,7 +855,19 @@ export default function MoodScreen() {
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* RATE MOOD CARD */}
+        {!!todaysQuote && (
+          <View style={styles.quoteCard}>
+            <Text style={styles.quoteText}>{todaysQuote}</Text>
+          </View>
+        )}
+
+        {moodFeedback && (
+          <View style={styles.moodToast}>
+            <Sparkles size={16} color="#111827" />
+            <Text style={styles.moodToastText}>{moodFeedback.message}</Text>
+          </View>
+        )}
+
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Rate your mood</Text>
           <Text style={styles.cardSubtitle}>Quick daily check-in</Text>
@@ -1076,6 +1129,39 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   streakText: { color: "#FFF", marginLeft: 6, fontWeight: "600" },
+
+  quoteCard: {
+    marginTop: 20,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    backgroundColor: "#EFF6FF",
+  },
+  quoteText: {
+    fontSize: 18,
+    lineHeight: 24,
+    color: "#1F2937",
+    fontStyle: "italic",
+    textAlign: "center",
+  },
+
+  moodToast: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#ECFDF3",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  moodToastText: {
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#166534",
+  },
 
   weekChip: {
     flexDirection: "row",

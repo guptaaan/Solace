@@ -21,5 +21,6 @@ export const ENDPOINTS = {
   chat: `${API_BASE_URL}/chat`,
   doctors: `${API_BASE_URL}/doctors`,
   fitbit: `${API_BASE_URL2}/fitbit`,
+  fitbitProxy: `${API_BASE_URL2}/fitbit-proxy`,
   onboardingSleep: `${API_BASE_URL3}/onboarding/sleep`,
 };
