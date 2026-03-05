@@ -1,6 +1,12 @@
+import {
+  formatWellnessDataForGemini,
+  getActivityGoals,
+  getWellnessData,
+} from '@/utils/fitbit-api';
+import { isFitbitConnected } from '@/utils/fitbit-auth';
 import { sendMessage } from '@/utils/gemini';
 import { AlertCircle, Send, Sparkles } from 'lucide-react-native';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface Message {
@@ -13,6 +19,7 @@ interface Message {
 export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [wellnessContext, setWellnessContext] = useState<string>('');
   const scrollViewRef = useRef<ScrollView>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -27,6 +34,34 @@ export default function ChatScreen() {
     const now = new Date();
     return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
+
+  const loadWellnessContext = useCallback(async () => {
+    try {
+      const connected = await isFitbitConnected();
+      if (!connected) return;
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 14);
+      const endStr = end.toISOString().split('T')[0];
+      const startStr = start.toISOString().split('T')[0];
+      const [data, dailyRes, weeklyRes] = await Promise.all([
+        getWellnessData(startStr, endStr),
+        getActivityGoals('daily'),
+        getActivityGoals('weekly'),
+      ]);
+      const summary = formatWellnessDataForGemini(data, {
+        goalsDaily: dailyRes?.goals,
+        goalsWeekly: weeklyRes?.goals,
+      });
+      setWellnessContext(summary);
+    } catch {
+      setWellnessContext('');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadWellnessContext();
+  }, [loadWellnessContext]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -56,7 +91,9 @@ export default function ChatScreen() {
           parts: msg.text,
         }));
 
-      const response = await sendMessage(userMessage.text, chatHistory);
+      const response = await sendMessage(userMessage.text, chatHistory, {
+        wellnessContext: wellnessContext || undefined,
+      });
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: response,
