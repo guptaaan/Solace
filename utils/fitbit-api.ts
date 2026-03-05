@@ -479,7 +479,9 @@ export function formatWellnessDataForGemini(
 ): string {
   if (!wellnessData?.length) return '';
 
-  const lines: string[] = ['Current user wellness data (use to personalize mental health support):'];
+  const lines: string[] = [
+    'Current user wellness data (use to personalize mental health support when values are present). Values of 0 or — may mean the Fitbit feature is off, not synced, or not recorded; do not treat as evidence of no activity/sleep.',
+  ];
   const last7 = wellnessData.slice(-7);
   const latest = wellnessData[wellnessData.length - 1];
 
