@@ -1,20 +1,1192 @@
-// app/(tabs)/Peerchat.tsx
+// // app/(tabs)/Peerchat.tsx  — Real group chat with anonymous names + moderation
+// import { auth } from "@/constants/firebase";
+// import { LinearGradient } from "expo-linear-gradient";
+// import {
+//   ArrowLeft,
+//   Hash,
+//   LogIn,
+//   Plus,
+//   Search,
+//   Send,
+//   ShieldCheck,
+//   Sparkles,
+//   Users,
+//   X,
+// } from "lucide-react-native";
+// import React, { useCallback, useEffect, useRef, useState } from "react";
+// import {
+//   ActivityIndicator,
+//   FlatList,
+//   KeyboardAvoidingView,
+//   Modal,
+//   Platform,
+//   Pressable,
+//   SafeAreaView,
+//   ScrollView,
+//   StyleSheet,
+//   Text,
+//   TextInput,
+//   TouchableOpacity,
+//   View,
+// } from "react-native";
+
+// // ── Types ─────────────────────────────────────────────────────────────────────
+// type Group = {
+//   id: string;
+//   name: string;
+//   description: string;
+//   code: string;
+//   members: number;
+//   category: string;
+//   isMember: boolean;
+// };
+
+// type ChatMsg = {
+//   id: string;
+//   groupId: string;
+//   authorName: string;
+//   text: string;
+//   createdAt: number;
+// };
+
+// // ── Config ────────────────────────────────────────────────────────────────────
+// const API = "https://61zb01mm87.execute-api.us-east-1.amazonaws.com/prod";
+// const GREEN = "#10B981";
+// const PURPLE = "#8B5CF6";
+// const WHITE = "#FFFFFF";
+// const BG = "#F9FAFB";
+// const MUTED = "#6B7280";
+// const BORDER = "#E5E7EB";
+// const TEXT = "#111827";
+// const RED = "#EF4444";
+// const POLL_MS = 6000; // poll for new messages every 6 s
+
+// // ── Helpers ───────────────────────────────────────────────────────────────────
+// function getUid() {
+//   try {
+//     return auth.currentUser?.uid ?? null;
+//   } catch {
+//     return null;
+//   }
+// }
+
+// async function apiFetch<T>(
+//   path: string,
+//   method: "GET" | "POST",
+//   body?: any,
+// ): Promise<T> {
+//   const res = await fetch(`${API}${path}`, {
+//     method,
+//     headers: { "Content-Type": "application/json" },
+//     body: body ? JSON.stringify(body) : undefined,
+//   });
+//   let json: any = {};
+//   try {
+//     json = await res.json();
+//   } catch {}
+//   if (!res.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+//   return json as T;
+// }
+
+// function normGroup(r: any): Group {
+//   return {
+//     id: String(r?.id ?? ""),
+//     name: String(r?.name ?? "Unnamed"),
+//     description: String(r?.description ?? ""),
+//     code: String(r?.code ?? "").toUpperCase(),
+//     members: Number(r?.members ?? 0),
+//     category: String(r?.category ?? "General"),
+//     isMember: !!r?.isMember,
+//   };
+// }
+
+// function normMsg(r: any, gid: string): ChatMsg {
+//   return {
+//     id: String(r?.id ?? Math.random().toString(36)),
+//     groupId: gid,
+//     authorName: String(r?.authorName ?? "Anonymous"),
+//     text: String(r?.text ?? ""),
+//     createdAt: Number(r?.createdAt ?? Date.now()),
+//   };
+// }
+
+// function fmtTime(n: number) {
+//   const d = new Date(n);
+//   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// }
+
+// function makeCode() {
+//   const c = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+//   return Array.from(
+//     { length: 4 },
+//     () => c[Math.floor(Math.random() * c.length)],
+//   ).join("");
+// }
+
+// // ── Component ─────────────────────────────────────────────────────────────────
+// export default function Peerchat() {
+//   const [view, setView] = useState<"groups" | "chat">("groups");
+//   const [activeGroup, setActiveGroup] = useState<Group | null>(null);
+
+//   // Groups state
+//   const [groups, setGroups] = useState<Group[]>([]);
+//   const [gLoad, setGLoad] = useState(false);
+//   const [gErr, setGErr] = useState<string | null>(null);
+//   const [query, setQuery] = useState("");
+
+//   // Create group
+//   const [showCreate, setShowCreate] = useState(false);
+//   const [cName, setCName] = useState("");
+//   const [cDesc, setCDesc] = useState("");
+//   const [cCat, setCCat] = useState("General");
+
+//   // Join group
+//   const [showJoin, setShowJoin] = useState(false);
+//   const [joinCode, setJoinCode] = useState("");
+//   const [joinLoad, setJoinLoad] = useState(false);
+//   const [joinErr, setJoinErr] = useState<string | null>(null);
+
+//   // Chat state
+//   const [messages, setMessages] = useState<ChatMsg[]>([]);
+//   const [mLoad, setMLoad] = useState(false);
+//   const [mErr, setMErr] = useState<string | null>(null);
+//   const [draft, setDraft] = useState("");
+//   const [sendLoad, setSendLoad] = useState(false);
+//   const [sendErr, setSendErr] = useState<string | null>(null);
+
+//   const [toast, setToast] = useState<string | null>(null);
+//   const flatRef = useRef<FlatList>(null);
+//   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+//   const lastTsRef = useRef<number>(0);
+
+//   useEffect(() => {
+//     if (!toast) return;
+//     const t = setTimeout(() => setToast(null), 3000);
+//     return () => clearTimeout(t);
+//   }, [toast]);
+
+//   // Load groups on mount
+//   useEffect(() => {
+//     loadGroups();
+//   }, []);
+
+//   async function loadGroups() {
+//     setGLoad(true);
+//     setGErr(null);
+//     try {
+//       const uid = getUid();
+//       const d = await apiFetch<{ groups: any[] }>(
+//         `/groups${uid ? `?uid=${encodeURIComponent(uid)}` : ""}`,
+//         "GET",
+//       );
+//       setGroups((d.groups ?? []).filter((g) => g?.id).map(normGroup));
+//     } catch (e: any) {
+//       setGErr(e.message ?? "Failed to load groups");
+//     } finally {
+//       setGLoad(false);
+//     }
+//   }
+
+//   // ── Chat polling ────────────────────────────────────────────────────────────
+//   const fetchMessages = useCallback(
+//     async (groupId: string, initial = false) => {
+//       if (initial) {
+//         setMLoad(true);
+//         setMErr(null);
+//         setMessages([]);
+//       }
+//       try {
+//         const d = await apiFetch<{ messages: any[] }>(
+//           `/${groupId}/messages?limit=60`,
+//           "GET",
+//         );
+//         const msgs = (d.messages ?? []).map((m) => normMsg(m, groupId));
+//         setMessages(msgs);
+//         if (msgs.length > 0)
+//           lastTsRef.current = msgs[msgs.length - 1].createdAt;
+//         if (initial)
+//           setTimeout(
+//             () => flatRef.current?.scrollToEnd({ animated: false }),
+//             100,
+//           );
+//       } catch (e: any) {
+//         if (initial) setMErr(e.message ?? "Failed to load messages");
+//       } finally {
+//         if (initial) setMLoad(false);
+//       }
+//     },
+//     [],
+//   );
+
+//   function startPolling(groupId: string) {
+//     stopPolling();
+//     pollRef.current = setInterval(() => fetchMessages(groupId), POLL_MS);
+//   }
+
+//   function stopPolling() {
+//     if (pollRef.current) {
+//       clearInterval(pollRef.current);
+//       pollRef.current = null;
+//     }
+//   }
+
+//   function openChat(g: Group) {
+//     setActiveGroup(g);
+//     setView("chat");
+//     setDraft("");
+//     setSendErr(null);
+//     fetchMessages(g.id, true);
+//     startPolling(g.id);
+//   }
+
+//   function backToGroups() {
+//     stopPolling();
+//     setView("groups");
+//     setActiveGroup(null);
+//     setMessages([]);
+//     setMErr(null);
+//     setDraft("");
+//     setSendErr(null);
+//     loadGroups();
+//   }
+
+//   useEffect(() => () => stopPolling(), []);
+
+//   // ── Create group ────────────────────────────────────────────────────────────
+//   async function createGroup() {
+//     if (!cName.trim()) return;
+//     try {
+//       const uid = getUid();
+//       const r = await apiFetch<any>("/groups", "POST", {
+//         uid,
+//         name: cName.trim(),
+//         description: cDesc.trim() || "Peer support space",
+//         category: cCat,
+//         code: makeCode(),
+//       });
+//       const g = normGroup(r?.group ?? r);
+//       if (!g.id) throw new Error("Invalid response");
+//       setGroups((prev) => [g, ...prev]);
+//       setShowCreate(false);
+//       setCName("");
+//       setCDesc("");
+//       setCCat("General");
+//       openChat(g);
+//       setToast("Group created!");
+//     } catch (e: any) {
+//       setToast(e.message ?? "Failed to create group");
+//     }
+//   }
+
+//   // ── Join group ──────────────────────────────────────────────────────────────
+//   async function joinGroup() {
+//     setJoinErr(null);
+//     setJoinLoad(true);
+//     try {
+//       const code = joinCode.trim().toUpperCase();
+//       if (!code) throw new Error("Enter a join code");
+//       const uid = getUid();
+//       const r = await apiFetch<any>("/join", "POST", { uid, code });
+//       const gid = String(r?.groupId ?? "");
+//       if (!gid) throw new Error("Join failed");
+
+//       setGroups((prev) =>
+//         prev.map((g) =>
+//           g.id === gid ? { ...g, isMember: true, members: g.members + 1 } : g,
+//         ),
+//       );
+//       const joined =
+//         groups.find((g) => g.id === gid) ?? normGroup(r?.group ?? {});
+//       setShowJoin(false);
+//       setJoinCode("");
+//       if (joined?.id) openChat({ ...joined, isMember: true });
+//       setToast("Joined!");
+//     } catch (e: any) {
+//       setJoinErr(e.message ?? "Join failed");
+//     } finally {
+//       setJoinLoad(false);
+//     }
+//   }
+
+//   // ── Send message ─────────────────────────────────────────────────────────────
+//   async function sendMessage() {
+//     const text = draft.trim();
+//     if (!text || !activeGroup) return;
+//     setSendLoad(true);
+//     setSendErr(null);
+//     try {
+//       const r = await apiFetch<any>(`/${activeGroup.id}/messages`, "POST", {
+//         uid: getUid(),
+//         text,
+//       });
+//       const msg = normMsg(r?.message ?? r, activeGroup.id);
+//       if (!msg.id) throw new Error("Invalid response");
+//       setMessages((prev) => [...prev, msg]);
+//       setDraft("");
+//       setTimeout(() => flatRef.current?.scrollToEnd({ animated: true }), 80);
+//     } catch (e: any) {
+//       setSendErr(e.message ?? "Failed to send");
+//     } finally {
+//       setSendLoad(false);
+//     }
+//   }
+
+//   const myAnonName = getUid() ? undefined : undefined; // server assigns — just for bubble coloring
+
+//   // ── Render: Chat ─────────────────────────────────────────────────────────────
+//   if (view === "chat" && activeGroup) {
+//     return (
+//       <SafeAreaView style={s.safe}>
+//         {/* Header */}
+//         <View style={s.chatHeader}>
+//           <TouchableOpacity onPress={backToGroups} style={s.backBtn}>
+//             <ArrowLeft size={20} color={TEXT} />
+//           </TouchableOpacity>
+//           <View style={{ flex: 1 }}>
+//             <Text style={s.chatHeaderTitle} numberOfLines={1}>
+//               {activeGroup.name}
+//             </Text>
+//             <View style={s.chatHeaderMeta}>
+//               <Users size={11} color={MUTED} />
+//               <Text style={s.chatHeaderSub}>{activeGroup.members} members</Text>
+//               <Text style={s.dot}>·</Text>
+//               <Hash size={11} color={MUTED} />
+//               <Text style={s.chatHeaderSub}>{activeGroup.code}</Text>
+//             </View>
+//           </View>
+//           <View style={s.modBadge}>
+//             <ShieldCheck size={13} color={GREEN} />
+//             <Text style={s.modBadgeText}>Moderated</Text>
+//           </View>
+//         </View>
+
+//         <KeyboardAvoidingView
+//           style={{ flex: 1 }}
+//           behavior={Platform.OS === "ios" ? "padding" : undefined}
+//           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+//         >
+//           {/* Messages */}
+//           {mLoad ? (
+//             <View style={s.centerBox}>
+//               <ActivityIndicator color={PURPLE} />
+//               <Text style={s.centerText}>Loading chat…</Text>
+//             </View>
+//           ) : mErr ? (
+//             <View style={s.centerBox}>
+//               <Text style={s.errText}>{mErr}</Text>
+//               <TouchableOpacity
+//                 onPress={() => fetchMessages(activeGroup.id, true)}
+//               >
+//                 <Text style={s.retryText}>Retry</Text>
+//               </TouchableOpacity>
+//             </View>
+//           ) : (
+//             <FlatList
+//               ref={flatRef}
+//               data={messages}
+//               keyExtractor={(m) => m.id}
+//               contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
+//               ListEmptyComponent={
+//                 <View style={s.centerBox}>
+//                   <Text style={s.centerText}>
+//                     No messages yet. Start the conversation!
+//                   </Text>
+//                 </View>
+//               }
+//               ListHeaderComponent={
+//                 <View style={s.safeNote}>
+//                   <ShieldCheck size={13} color={MUTED} />
+//                   <Text style={s.safeNoteText}>
+//                     All messages are anonymous and AI-moderated. If you're in
+//                     crisis, call or text 988.
+//                   </Text>
+//                 </View>
+//               }
+//               renderItem={({ item, index }) => {
+//                 const prev = messages[index - 1];
+//                 const showName = !prev || prev.authorName !== item.authorName;
+//                 const isMe = false; // always show as "other" — fully anonymous
+//                 return (
+//                   <View style={[s.msgRow, isMe && s.msgRowMe]}>
+//                     <View style={[s.bubble, isMe ? s.bubbleMe : s.bubbleThem]}>
+//                       {showName && (
+//                         <Text
+//                           style={[s.bubbleName, isMe && { color: "#7C3AED" }]}
+//                         >
+//                           {item.authorName}
+//                         </Text>
+//                       )}
+//                       <Text style={[s.bubbleText, isMe && { color: WHITE }]}>
+//                         {item.text}
+//                       </Text>
+//                       <Text
+//                         style={[
+//                           s.bubbleTime,
+//                           isMe && { color: "rgba(255,255,255,0.6)" },
+//                         ]}
+//                       >
+//                         {fmtTime(item.createdAt)}
+//                       </Text>
+//                     </View>
+//                   </View>
+//                 );
+//               }}
+//             />
+//           )}
+
+//           {/* Input bar */}
+//           <View style={s.inputBar}>
+//             {sendErr ? (
+//               <View style={s.sendErrBox}>
+//                 <Text style={s.sendErrText} numberOfLines={3}>
+//                   {sendErr}
+//                 </Text>
+//               </View>
+//             ) : null}
+//             <View style={s.inputRow}>
+//               <TextInput
+//                 style={s.input}
+//                 value={draft}
+//                 onChangeText={(v) => {
+//                   setDraft(v);
+//                   setSendErr(null);
+//                 }}
+//                 placeholder="Message the group…"
+//                 placeholderTextColor="#9CA3AF"
+//                 multiline
+//                 maxLength={800}
+//                 returnKeyType="default"
+//               />
+//               <TouchableOpacity
+//                 style={[
+//                   s.sendBtn,
+//                   (!draft.trim() || sendLoad) && { opacity: 0.45 },
+//                 ]}
+//                 onPress={sendMessage}
+//                 disabled={!draft.trim() || sendLoad}
+//               >
+//                 {sendLoad ? (
+//                   <ActivityIndicator size="small" color={WHITE} />
+//                 ) : (
+//                   <Send size={17} color={WHITE} />
+//                 )}
+//               </TouchableOpacity>
+//             </View>
+//           </View>
+//         </KeyboardAvoidingView>
+//       </SafeAreaView>
+//     );
+//   }
+
+//   // ── Render: Groups ────────────────────────────────────────────────────────────
+//   const filtered = groups.filter((g) => {
+//     const q = query.trim().toLowerCase();
+//     if (!q) return true;
+//     return (
+//       g.name.toLowerCase().includes(q) ||
+//       g.description.toLowerCase().includes(q) ||
+//       g.category.toLowerCase().includes(q) ||
+//       g.code.toLowerCase().includes(q)
+//     );
+//   });
+//   const myGroups = filtered.filter((g) => g.isMember);
+//   const otherGroups = filtered.filter((g) => !g.isMember);
+
+//   return (
+//     <SafeAreaView style={s.safe}>
+//       <ScrollView
+//         contentContainerStyle={{ paddingBottom: 40 }}
+//         showsVerticalScrollIndicator={false}
+//       >
+//         {/* Hero */}
+//         <LinearGradient
+//           colors={[GREEN, "#059669"]}
+//           start={{ x: 0, y: 0 }}
+//           end={{ x: 1, y: 1 }}
+//           style={s.hero}
+//         >
+//           <View style={s.heroTop}>
+//             <View style={s.heroIcon}>
+//               <Users size={22} color={WHITE} />
+//             </View>
+//             <View style={{ flex: 1 }}>
+//               <Text style={s.heroTitle}>Peer Groups</Text>
+//               <Text style={s.heroSub}>
+//                 Anonymous, moderated group chat for students.
+//               </Text>
+//             </View>
+//           </View>
+//           <View style={s.heroPills}>
+//             <View style={s.pill}>
+//               <Sparkles size={12} color={WHITE} />
+//               <Text style={s.pillText}>Anonymous</Text>
+//             </View>
+//             <View style={s.pill}>
+//               <ShieldCheck size={12} color={WHITE} />
+//               <Text style={s.pillText}>AI Moderated</Text>
+//             </View>
+//           </View>
+//           <View style={s.heroBtns}>
+//             <TouchableOpacity
+//               style={s.hBtn1}
+//               onPress={() => {
+//                 setCName("");
+//                 setCDesc("");
+//                 setCCat("General");
+//                 setShowCreate(true);
+//               }}
+//             >
+//               <Plus size={15} color={WHITE} />
+//               <Text style={s.hBtn1Text}>Create group</Text>
+//             </TouchableOpacity>
+//             <TouchableOpacity
+//               style={s.hBtn2}
+//               onPress={() => {
+//                 setJoinCode("");
+//                 setJoinErr(null);
+//                 setShowJoin(true);
+//               }}
+//             >
+//               <LogIn size={15} color={TEXT} />
+//               <Text style={s.hBtn2Text}>Join with code</Text>
+//             </TouchableOpacity>
+//           </View>
+//         </LinearGradient>
+
+//         {/* Search */}
+//         <View style={s.searchRow}>
+//           <Search size={16} color={MUTED} />
+//           <TextInput
+//             style={s.searchInput}
+//             value={query}
+//             onChangeText={setQuery}
+//             placeholder="Search groups…"
+//             placeholderTextColor="#9CA3AF"
+//           />
+//         </View>
+
+//         {gLoad && (
+//           <View style={s.centerBox}>
+//             <ActivityIndicator color={PURPLE} />
+//             <Text style={s.centerText}>Loading groups…</Text>
+//           </View>
+//         )}
+//         {gErr && (
+//           <View style={[s.errBox, { margin: 16 }]}>
+//             <Text style={s.errText}>{gErr}</Text>
+//             <TouchableOpacity onPress={loadGroups}>
+//               <Text style={s.retryText}>Retry</Text>
+//             </TouchableOpacity>
+//           </View>
+//         )}
+
+//         {/* My Groups */}
+//         <Text style={s.sectionLabel}>Your groups</Text>
+//         <View style={s.section}>
+//           {myGroups.length === 0 ? (
+//             <View style={s.emptyCard}>
+//               <Text style={s.emptyCardText}>
+//                 No groups yet — create or join one above.
+//               </Text>
+//             </View>
+//           ) : (
+//             myGroups.map((g) => (
+//               <TouchableOpacity
+//                 key={g.id}
+//                 style={s.groupCard}
+//                 onPress={() => openChat(g)}
+//               >
+//                 <View style={s.groupCardTop}>
+//                   <Text style={s.groupName} numberOfLines={1}>
+//                     {g.name}
+//                   </Text>
+//                   <View style={s.catTag}>
+//                     <Text style={s.catTagText}>{g.category}</Text>
+//                   </View>
+//                 </View>
+//                 <Text style={s.groupDesc} numberOfLines={2}>
+//                   {g.description}
+//                 </Text>
+//                 <View style={s.groupMeta}>
+//                   <Users size={11} color={MUTED} />
+//                   <Text style={s.metaText}>{g.members} members</Text>
+//                   <Text style={s.dot}>·</Text>
+//                   <Hash size={11} color={MUTED} />
+//                   <Text style={s.metaText}>{g.code}</Text>
+//                 </View>
+//               </TouchableOpacity>
+//             ))
+//           )}
+//         </View>
+
+//         {/* Discover */}
+//         <Text style={s.sectionLabel}>Discover</Text>
+//         <View style={s.section}>
+//           {otherGroups.length === 0 ? (
+//             <View style={s.emptyCard}>
+//               <Text style={s.emptyCardText}>
+//                 No other groups to discover yet.
+//               </Text>
+//             </View>
+//           ) : (
+//             otherGroups.map((g) => (
+//               <View
+//                 key={g.id}
+//                 style={[
+//                   s.groupCard,
+//                   { flexDirection: "row", alignItems: "center", gap: 10 },
+//                 ]}
+//               >
+//                 <View style={{ flex: 1 }}>
+//                   <View style={s.groupCardTop}>
+//                     <Text style={s.groupName} numberOfLines={1}>
+//                       {g.name}
+//                     </Text>
+//                     <View
+//                       style={[
+//                         s.catTag,
+//                         { borderColor: "#EDE9FE", backgroundColor: "#F5F3FF" },
+//                       ]}
+//                     >
+//                       <Text style={[s.catTagText, { color: PURPLE }]}>
+//                         {g.category}
+//                       </Text>
+//                     </View>
+//                   </View>
+//                   <Text style={s.groupDesc} numberOfLines={2}>
+//                     {g.description}
+//                   </Text>
+//                   <View style={s.groupMeta}>
+//                     <Users size={11} color={MUTED} />
+//                     <Text style={s.metaText}>{g.members}</Text>
+//                     <Text style={s.dot}>·</Text>
+//                     <Hash size={11} color={MUTED} />
+//                     <Text style={s.metaText}>{g.code}</Text>
+//                   </View>
+//                 </View>
+//                 <TouchableOpacity
+//                   style={s.joinBtn}
+//                   onPress={() => {
+//                     setJoinCode(g.code);
+//                     setJoinErr(null);
+//                     setShowJoin(true);
+//                   }}
+//                 >
+//                   <Text style={s.joinBtnText}>Join</Text>
+//                 </TouchableOpacity>
+//               </View>
+//             ))
+//           )}
+//         </View>
+//       </ScrollView>
+
+//       {/* Create Group Modal */}
+//       <Modal
+//         visible={showCreate}
+//         transparent
+//         animationType="fade"
+//         onRequestClose={() => setShowCreate(false)}
+//       >
+//         <View style={s.overlay}>
+//           <KeyboardAvoidingView
+//             behavior={Platform.OS === "ios" ? "padding" : undefined}
+//           >
+//             <View style={s.modal}>
+//               <View style={s.modalHdr}>
+//                 <Text style={s.modalTitle}>Create a group</Text>
+//                 <Pressable
+//                   onPress={() => setShowCreate(false)}
+//                   style={s.closeBtn}
+//                 >
+//                   <X size={17} color={TEXT} />
+//                 </Pressable>
+//               </View>
+//               <Text style={s.modalLabel}>Group name *</Text>
+//               <TextInput
+//                 style={s.modalField}
+//                 value={cName}
+//                 onChangeText={setCName}
+//                 placeholder="e.g. Calm After Class"
+//                 placeholderTextColor="#9CA3AF"
+//               />
+//               <Text style={s.modalLabel}>Description</Text>
+//               <TextInput
+//                 style={[s.modalField, { height: 72, textAlignVertical: "top" }]}
+//                 value={cDesc}
+//                 onChangeText={setCDesc}
+//                 placeholder="What's this group about?"
+//                 placeholderTextColor="#9CA3AF"
+//                 multiline
+//               />
+//               <Text style={s.modalLabel}>Category</Text>
+//               <View style={s.catRow}>
+//                 {["General", "Anxiety", "Stress", "Study", "Fitness"].map(
+//                   (c) => (
+//                     <TouchableOpacity
+//                       key={c}
+//                       onPress={() => setCCat(c)}
+//                       style={[s.catChip, cCat === c && s.catChipOn]}
+//                     >
+//                       <Text
+//                         style={[s.catChipText, cCat === c && s.catChipTextOn]}
+//                       >
+//                         {c}
+//                       </Text>
+//                     </TouchableOpacity>
+//                   ),
+//                 )}
+//               </View>
+//               <TouchableOpacity
+//                 style={[s.modalBtn, !cName.trim() && { opacity: 0.5 }]}
+//                 disabled={!cName.trim()}
+//                 onPress={createGroup}
+//               >
+//                 <Text style={s.modalBtnText}>Create</Text>
+//               </TouchableOpacity>
+//               <Text style={s.hint}>
+//                 A 4-letter join code is generated automatically.
+//               </Text>
+//             </View>
+//           </KeyboardAvoidingView>
+//         </View>
+//       </Modal>
+
+//       {/* Join Modal */}
+//       <Modal
+//         visible={showJoin}
+//         transparent
+//         animationType="fade"
+//         onRequestClose={() => setShowJoin(false)}
+//       >
+//         <View style={s.overlay}>
+//           <View style={s.modal}>
+//             <View style={s.modalHdr}>
+//               <Text style={s.modalTitle}>Join with code</Text>
+//               <Pressable onPress={() => setShowJoin(false)} style={s.closeBtn}>
+//                 <X size={17} color={TEXT} />
+//               </Pressable>
+//             </View>
+//             <Text style={s.modalLabel}>Enter join code</Text>
+//             <TextInput
+//               style={s.modalField}
+//               value={joinCode}
+//               onChangeText={(v) => {
+//                 setJoinCode(v);
+//                 setJoinErr(null);
+//               }}
+//               placeholder="e.g. HS9D"
+//               placeholderTextColor="#9CA3AF"
+//               autoCapitalize="characters"
+//               maxLength={6}
+//             />
+//             {joinErr ? <Text style={s.modalErr}>{joinErr}</Text> : null}
+//             <TouchableOpacity
+//               style={[
+//                 s.modalBtn,
+//                 (joinLoad || !joinCode.trim()) && { opacity: 0.5 },
+//               ]}
+//               disabled={joinLoad || !joinCode.trim()}
+//               onPress={joinGroup}
+//             >
+//               {joinLoad ? (
+//                 <ActivityIndicator color={WHITE} />
+//               ) : (
+//                 <Text style={s.modalBtnText}>Join</Text>
+//               )}
+//             </TouchableOpacity>
+//           </View>
+//         </View>
+//       </Modal>
+
+//       {toast ? (
+//         <View style={s.toast}>
+//           <Text style={s.toastText}>{toast}</Text>
+//         </View>
+//       ) : null}
+//     </SafeAreaView>
+//   );
+// }
+
+// // ── Styles ─────────────────────────────────────────────────────────────────────
+// const s = StyleSheet.create({
+//   safe: { flex: 1, backgroundColor: BG },
+
+//   // Hero
+//   hero: { margin: 16, borderRadius: 18, padding: 16 },
+//   heroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+//   heroIcon: {
+//     width: 44,
+//     height: 44,
+//     borderRadius: 22,
+//     backgroundColor: "rgba(255,255,255,0.22)",
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   heroTitle: { color: WHITE, fontSize: 20, fontWeight: "800" },
+//   heroSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
+//   heroPills: { flexDirection: "row", gap: 8, marginTop: 12 },
+//   pill: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 5,
+//     backgroundColor: "rgba(255,255,255,0.18)",
+//     paddingHorizontal: 10,
+//     paddingVertical: 6,
+//     borderRadius: 999,
+//   },
+//   pillText: { color: WHITE, fontSize: 11, fontWeight: "700" },
+//   heroBtns: { flexDirection: "row", gap: 10, marginTop: 14 },
+//   hBtn1: {
+//     flex: 1,
+//     backgroundColor: "rgba(0,0,0,0.18)",
+//     borderWidth: 1,
+//     borderColor: "rgba(255,255,255,0.3)",
+//     borderRadius: 12,
+//     paddingVertical: 11,
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "center",
+//     gap: 7,
+//   },
+//   hBtn1Text: { color: WHITE, fontWeight: "800", fontSize: 13 },
+//   hBtn2: {
+//     flex: 1,
+//     backgroundColor: WHITE,
+//     borderRadius: 12,
+//     paddingVertical: 11,
+//     flexDirection: "row",
+//     alignItems: "center",
+//     justifyContent: "center",
+//     gap: 7,
+//   },
+//   hBtn2Text: { color: TEXT, fontWeight: "800", fontSize: 13 },
+
+//   // Search
+//   searchRow: {
+//     marginHorizontal: 16,
+//     marginBottom: 4,
+//     backgroundColor: WHITE,
+//     borderRadius: 12,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     flexDirection: "row",
+//     alignItems: "center",
+//     paddingHorizontal: 12,
+//     paddingVertical: 8,
+//     gap: 8,
+//   },
+//   searchInput: { flex: 1, color: TEXT, fontSize: 14 },
+
+//   // Section
+//   sectionLabel: {
+//     marginTop: 18,
+//     marginBottom: 10,
+//     paddingHorizontal: 16,
+//     fontSize: 14,
+//     fontWeight: "800",
+//     color: TEXT,
+//   },
+//   section: { paddingHorizontal: 16 },
+
+//   // Group cards
+//   groupCard: {
+//     backgroundColor: WHITE,
+//     borderRadius: 14,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     padding: 13,
+//     marginBottom: 10,
+//   },
+//   groupCardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+//   groupName: { flex: 1, fontSize: 14, fontWeight: "800", color: TEXT },
+//   groupDesc: { color: MUTED, fontSize: 12, marginTop: 5, lineHeight: 17 },
+//   groupMeta: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 5,
+//     marginTop: 8,
+//   },
+//   metaText: { color: MUTED, fontSize: 11, fontWeight: "600" },
+//   dot: { color: MUTED, fontSize: 11 },
+//   catTag: {
+//     borderWidth: 1,
+//     borderColor: "#D1FAE5",
+//     backgroundColor: "#ECFDF5",
+//     paddingHorizontal: 8,
+//     paddingVertical: 4,
+//     borderRadius: 999,
+//   },
+//   catTagText: { color: "#047857", fontSize: 10, fontWeight: "800" },
+//   joinBtn: {
+//     backgroundColor: PURPLE,
+//     paddingHorizontal: 14,
+//     paddingVertical: 9,
+//     borderRadius: 10,
+//   },
+//   joinBtnText: { color: WHITE, fontWeight: "800", fontSize: 13 },
+//   emptyCard: {
+//     backgroundColor: WHITE,
+//     borderRadius: 12,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     padding: 16,
+//     alignItems: "center",
+//   },
+//   emptyCardText: { color: MUTED, fontSize: 13 },
+
+//   // Chat header
+//   chatHeader: {
+//     backgroundColor: WHITE,
+//     borderBottomWidth: 1,
+//     borderBottomColor: BORDER,
+//     paddingHorizontal: 14,
+//     paddingVertical: 11,
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 10,
+//   },
+//   backBtn: {
+//     width: 36,
+//     height: 36,
+//     borderRadius: 10,
+//     backgroundColor: "#F3F4F6",
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   chatHeaderTitle: { fontSize: 15, fontWeight: "900", color: TEXT },
+//   chatHeaderMeta: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 4,
+//     marginTop: 2,
+//   },
+//   chatHeaderSub: { fontSize: 11, color: MUTED, fontWeight: "600" },
+//   modBadge: {
+//     flexDirection: "row",
+//     alignItems: "center",
+//     gap: 5,
+//     backgroundColor: "#ECFDF5",
+//     borderWidth: 1,
+//     borderColor: "#D1FAE5",
+//     paddingHorizontal: 9,
+//     paddingVertical: 6,
+//     borderRadius: 999,
+//   },
+//   modBadgeText: { color: "#047857", fontSize: 10, fontWeight: "800" },
+
+//   // Messages
+//   msgRow: { marginBottom: 4, alignItems: "flex-start" },
+//   msgRowMe: { alignItems: "flex-end" },
+//   bubble: {
+//     maxWidth: "78%",
+//     borderRadius: 16,
+//     paddingHorizontal: 12,
+//     paddingVertical: 9,
+//     paddingBottom: 6,
+//   },
+//   bubbleThem: {
+//     backgroundColor: WHITE,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     borderBottomLeftRadius: 4,
+//   },
+//   bubbleMe: { backgroundColor: PURPLE, borderBottomRightRadius: 4 },
+//   bubbleName: {
+//     fontSize: 11,
+//     fontWeight: "800",
+//     color: GREEN,
+//     marginBottom: 3,
+//   },
+//   bubbleText: { fontSize: 14, color: TEXT, lineHeight: 19 },
+//   bubbleTime: { fontSize: 10, color: MUTED, marginTop: 4, textAlign: "right" },
+
+//   // Safety note
+//   safeNote: {
+//     flexDirection: "row",
+//     alignItems: "flex-start",
+//     gap: 7,
+//     backgroundColor: "#F0FDF4",
+//     borderRadius: 12,
+//     borderWidth: 1,
+//     borderColor: "#BBF7D0",
+//     padding: 11,
+//     marginBottom: 12,
+//   },
+//   safeNoteText: { flex: 1, color: "#166534", fontSize: 11, lineHeight: 16 },
+
+//   // Input bar
+//   inputBar: {
+//     backgroundColor: WHITE,
+//     borderTopWidth: 1,
+//     borderTopColor: BORDER,
+//     padding: 10,
+//     paddingBottom: Platform.OS === "ios" ? 26 : 10,
+//   },
+//   sendErrBox: {
+//     backgroundColor: "#FEF2F2",
+//     borderRadius: 10,
+//     padding: 10,
+//     marginBottom: 8,
+//     borderWidth: 1,
+//     borderColor: "#FECACA",
+//   },
+//   sendErrText: {
+//     color: "#991B1B",
+//     fontSize: 12,
+//     fontWeight: "700",
+//     lineHeight: 17,
+//   },
+//   inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+//   input: {
+//     flex: 1,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     borderRadius: 14,
+//     paddingHorizontal: 13,
+//     paddingVertical: 10,
+//     color: TEXT,
+//     fontSize: 14,
+//     maxHeight: 110,
+//     backgroundColor: "#F9FAFB",
+//   },
+//   sendBtn: {
+//     width: 42,
+//     height: 42,
+//     borderRadius: 13,
+//     backgroundColor: PURPLE,
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+
+//   // Center / error states
+//   centerBox: {
+//     flex: 1,
+//     alignItems: "center",
+//     justifyContent: "center",
+//     padding: 32,
+//     gap: 10,
+//   },
+//   centerText: { color: MUTED, fontSize: 13, textAlign: "center" },
+//   errBox: {
+//     backgroundColor: "#FEF2F2",
+//     borderRadius: 12,
+//     borderWidth: 1,
+//     borderColor: "#FECACA",
+//     padding: 14,
+//     gap: 6,
+//   },
+//   errText: { color: "#991B1B", fontWeight: "700", fontSize: 13 },
+//   retryText: {
+//     color: "#991B1B",
+//     fontWeight: "900",
+//     textDecorationLine: "underline",
+//     fontSize: 13,
+//   },
+
+//   // Modals
+//   overlay: {
+//     flex: 1,
+//     backgroundColor: "rgba(17,24,39,0.45)",
+//     justifyContent: "center",
+//     padding: 16,
+//   },
+//   modal: {
+//     backgroundColor: WHITE,
+//     borderRadius: 18,
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     padding: 16,
+//   },
+//   modalHdr: {
+//     flexDirection: "row",
+//     justifyContent: "space-between",
+//     alignItems: "center",
+//     marginBottom: 2,
+//   },
+//   modalTitle: { fontSize: 16, fontWeight: "900", color: TEXT },
+//   closeBtn: {
+//     width: 32,
+//     height: 32,
+//     borderRadius: 16,
+//     backgroundColor: "#F3F4F6",
+//     alignItems: "center",
+//     justifyContent: "center",
+//   },
+//   modalLabel: {
+//     fontSize: 12,
+//     fontWeight: "800",
+//     color: TEXT,
+//     marginTop: 12,
+//     marginBottom: 5,
+//   },
+//   modalField: {
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     backgroundColor: "#F9FAFB",
+//     borderRadius: 11,
+//     paddingHorizontal: 12,
+//     paddingVertical: 10,
+//     color: TEXT,
+//     fontSize: 14,
+//   },
+//   modalBtn: {
+//     backgroundColor: GREEN,
+//     borderRadius: 12,
+//     paddingVertical: 13,
+//     alignItems: "center",
+//     marginTop: 14,
+//   },
+//   modalBtnText: { color: WHITE, fontWeight: "900", fontSize: 14 },
+//   modalErr: { color: RED, fontSize: 12, fontWeight: "700", marginTop: 8 },
+//   hint: { color: MUTED, fontSize: 11, marginTop: 8, lineHeight: 15 },
+
+//   // Category chips
+//   catRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 4 },
+//   catChip: {
+//     borderWidth: 1,
+//     borderColor: BORDER,
+//     backgroundColor: "#F9FAFB",
+//     borderRadius: 999,
+//     paddingHorizontal: 11,
+//     paddingVertical: 7,
+//   },
+//   catChipOn: { borderColor: "#D1FAE5", backgroundColor: "#ECFDF5" },
+//   catChipText: { color: MUTED, fontSize: 12, fontWeight: "700" },
+//   catChipTextOn: { color: "#047857" },
+
+//   // Toast
+//   toast: {
+//     position: "absolute",
+//     bottom: 20,
+//     left: 16,
+//     right: 16,
+//     backgroundColor: "rgba(17,24,39,0.9)",
+//     borderRadius: 12,
+//     paddingVertical: 12,
+//     paddingHorizontal: 16,
+//     alignItems: "center",
+//   },
+//   toastText: { color: WHITE, fontWeight: "800", fontSize: 13 },
+// });
+import { auth } from "@/constants/firebase";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   ArrowLeft,
   Hash,
   LogIn,
-  MessageCircle,
   Plus,
   Search,
+  Send,
   ShieldCheck,
   Sparkles,
   Users,
   X,
 } from "lucide-react-native";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -27,1411 +1199,839 @@ import {
   View,
 } from "react-native";
 
-/**
- * POST-BASED VERSION (NON-LOCAL)
- *
- * THIS FILE IS ALIGNED TO YOUR ACTUAL API GATEWAY ROUTES:
- *   GET    /groups
- *   POST   /groups
- *   POST   /join
- *   GET    /{groupId}/posts
- *   POST   /{groupId}/posts
- *   POST   /{groupId}/posts/{postId}/react
- */
-
 type Group = {
   id: string;
   name: string;
   description: string;
   code: string;
   members: number;
-  category: "Anxiety" | "Stress" | "Study" | "Fitness" | "General";
+  category: string;
   isMember: boolean;
 };
 
-type Post = {
+type ChatMsg = {
   id: string;
   groupId: string;
   authorName: string;
   text: string;
   createdAt: number;
-  reactions?: Record<string, number>;
-  myReactions?: string[];
 };
 
-type SupportReply = {
-  id: string;
-  label: string;
-  category:
-    | "Empathy"
-    | "Encouragement"
-    | "Grounding"
-    | "Practical"
-    | "Perspective"
-    | "Boundaries";
-  message: string;
-};
+const API = "https://61zb01mm87.execute-api.us-east-1.amazonaws.com/prod";
 
-// Brand
-const BRAND_GREEN = "#10B981";
-const BRAND_PURPLE = "#8B5CF6";
-const CARD_BG = "#FFFFFF";
-const PAGE_BG = "#F9FAFB";
+const GREEN = "#10B981";
+const PURPLE = "#8B5CF6";
+const WHITE = "#FFFFFF";
+const BG = "#F9FAFB";
 const MUTED = "#6B7280";
 const BORDER = "#E5E7EB";
 const TEXT = "#111827";
+const RED = "#EF4444";
+const POLL_MS = 6000;
 
-// API base
-const API_BASE_URL =
-  "https://61zb01mm87.execute-api.us-east-1.amazonaws.com/prod";
+function getUid() {
+  try {
+    return auth.currentUser?.uid ?? null;
+  } catch {
+    return null;
+  }
+}
 
-// IMPORTANT: build routes in ONE place to avoid any accidental /groups prefix
-const routes = {
-  groups: () => `/groups`,
-  createGroup: () => `/groups`,
-  join: () => `/join`,
-  posts: (groupId: string) => `/${encodeURIComponent(groupId)}/posts`,
-  react: (groupId: string, postId: string) =>
-    `/${encodeURIComponent(groupId)}/posts/${encodeURIComponent(postId)}/react`,
-};
-
-async function api<T>(
+async function apiFetch<T>(
   path: string,
   method: "GET" | "POST",
   body?: any,
 ): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
+  let res: Response;
 
-  const res = await fetch(url, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  try {
+    res = await fetch(`${API}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Network error or CORS issue");
+  }
 
   let json: any = {};
   try {
     json = await res.json();
-  } catch {
-    json = {};
-  }
+  } catch {}
 
   if (!res.ok) {
-    const msg =
-      typeof json?.message === "string"
-        ? json.message
-        : typeof json?.error === "string"
-          ? json.error
-          : "Request failed.";
-    throw new Error(msg);
+    throw new Error(json?.error || `HTTP ${res.status}`);
   }
 
   return json as T;
 }
 
-// Helpers
-function formatTime(ts: number) {
-  const d = new Date(ts);
-  return d.toLocaleString([], {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function normGroup(r: any): Group {
+  return {
+    id: String(r?.id ?? ""),
+    name: String(r?.name ?? "Unnamed"),
+    description: String(r?.description ?? ""),
+    code: String(r?.code ?? "").toUpperCase(),
+    members: Number(r?.members ?? 0),
+    category: String(r?.category ?? "General"),
+    isMember: !!r?.isMember,
+  };
 }
 
-function makeJoinCode() {
+function normMsg(r: any, gid: string): ChatMsg {
+  return {
+    id: String(r?.id ?? Math.random().toString(36)),
+    groupId: gid,
+    authorName: String(r?.authorName ?? "Anonymous"),
+    text: String(r?.text ?? ""),
+    createdAt: Number(r?.createdAt ?? Date.now()),
+  };
+}
+
+function fmtTime(n: number) {
+  const d = new Date(n);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function makeCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let out = "";
-  for (let i = 0; i < 4; i++)
-    out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
-
-function normalizeCategory(v: any): Group["category"] {
-  const allowed: Group["category"][] = [
-    "Anxiety",
-    "Stress",
-    "Study",
-    "Fitness",
-    "General",
-  ];
-  if (typeof v === "string" && allowed.includes(v as any))
-    return v as Group["category"];
-  return "General";
-}
-
-// Backend can return {members: []} or {members: number}
-function normalizeGroup(raw: any): Group {
-  const membersCount =
-    typeof raw?.members === "number"
-      ? raw.members
-      : Array.isArray(raw?.members)
-        ? raw.members.length
-        : 0;
-
-  return {
-    id: String(raw?.id ?? ""),
-    name: String(raw?.name ?? "Unnamed group"),
-    description: String(raw?.description ?? "Peer support space"),
-    code: String(raw?.code ?? ""),
-    members: membersCount,
-    category: normalizeCategory(raw?.category),
-    // If backend doesn’t track membership, default to true so you can open group feed
-    isMember: typeof raw?.isMember === "boolean" ? raw.isMember : true,
-  };
-}
-
-function normalizePost(raw: any, groupId: string): Post {
-  return {
-    id: String(raw?.id ?? ""),
-    groupId,
-    authorName: String(raw?.authorName ?? "Anonymous"),
-    text: String(raw?.text ?? ""),
-    createdAt: typeof raw?.createdAt === "number" ? raw.createdAt : Date.now(),
-    reactions:
-      raw?.reactions && typeof raw.reactions === "object" ? raw.reactions : {},
-    myReactions: Array.isArray(raw?.myReactions) ? raw.myReactions : [],
-  };
-}
-
-// Deterministic shuffle
-function hashStringToInt(str: string) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function seededShuffle<T>(arr: T[], seed: number) {
-  const a = [...arr];
-  let s = seed >>> 0;
-  for (let i = a.length - 1; i > 0; i--) {
-    s ^= s << 13;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    const j = Math.abs(s) % (i + 1);
-    const tmp = a[i];
-    a[i] = a[j];
-    a[j] = tmp;
-  }
-  return a;
-}
-
-// Predefined replies
-const SUPPORT_REPLIES: SupportReply[] = [
-  {
-    id: "e1",
-    category: "Empathy",
-    label: "I hear you",
-    message: "I hear you. That sounds really hard.",
-  },
-  {
-    id: "e2",
-    category: "Empathy",
-    label: "That makes sense",
-    message: "That makes sense. Anyone would feel a lot in that situation.",
-  },
-  {
-    id: "e3",
-    category: "Empathy",
-    label: "Thanks for sharing",
-    message: "Thanks for sharing this here. You didn’t have to carry it alone.",
-  },
-  {
-    id: "e4",
-    category: "Empathy",
-    label: "You’re not alone",
-    message: "You’re not alone. I’m here with you.",
-  },
-  {
-    id: "e5",
-    category: "Empathy",
-    label: "That sounds exhausting",
-    message: "That sounds exhausting. No wonder you feel drained.",
-  },
-  {
-    id: "e6",
-    category: "Empathy",
-    label: "I get it",
-    message:
-      "I get it. Sometimes things feel heavy even when you try your best.",
-  },
-  {
-    id: "e7",
-    category: "Empathy",
-    label: "Valid feelings",
-    message: "Your feelings are valid. You don’t have to justify them.",
-  },
-  {
-    id: "e8",
-    category: "Empathy",
-    label: "I’m listening",
-    message: "I’m listening. Take your time.",
-  },
-
-  {
-    id: "c1",
-    category: "Encouragement",
-    label: "One step",
-    message: "One step at a time. You don’t have to solve it all today.",
-  },
-  {
-    id: "c2",
-    category: "Encouragement",
-    label: "Small win",
-    message: "Even posting here is a small win. Proud of you for that.",
-  },
-  {
-    id: "c3",
-    category: "Encouragement",
-    label: "You can do today",
-    message: "You can get through today. Just the next small part.",
-  },
-  {
-    id: "c4",
-    category: "Encouragement",
-    label: "Gentle with yourself",
-    message:
-      "Be gentle with yourself. You’re doing your best with what you have.",
-  },
-  {
-    id: "c5",
-    category: "Encouragement",
-    label: "Keep going",
-    message: "Keep going. You’ve handled hard days before.",
-  },
-  {
-    id: "c6",
-    category: "Encouragement",
-    label: "You matter",
-    message: "You matter, and what you’re feeling matters.",
-  },
-  {
-    id: "c7",
-    category: "Encouragement",
-    label: "Proud of you",
-    message: "I’m proud of you for being honest about this.",
-  },
-  {
-    id: "c8",
-    category: "Encouragement",
-    label: "Rooting for you",
-    message:
-      "I’m rooting for you. You’ve got more strength than you feel right now.",
-  },
-
-  {
-    id: "g1",
-    category: "Grounding",
-    label: "4-6 breathing",
-    message: "Try this: inhale 4 seconds, exhale 6 seconds. Repeat 5 times.",
-  },
-  {
-    id: "g2",
-    category: "Grounding",
-    label: "Box breathing",
-    message: "Inhale 4, hold 4, exhale 4, hold 4. Repeat 4 rounds.",
-  },
-  {
-    id: "g3",
-    category: "Grounding",
-    label: "5-4-3-2-1",
-    message: "Grounding: 5 see, 4 feel, 3 hear, 2 smell, 1 taste.",
-  },
-  {
-    id: "g4",
-    category: "Grounding",
-    label: "Relax jaw",
-    message:
-      "Drop your shoulders, unclench your jaw, and take one slow breath.",
-  },
-  {
-    id: "g5",
-    category: "Grounding",
-    label: "Feet on floor",
-    message: "Put both feet on the floor. Press down gently for 10 seconds.",
-  },
-  {
-    id: "g6",
-    category: "Grounding",
-    label: "Name 3 objects",
-    message: "Look around and name 3 objects. Describe their color/shape.",
-  },
-  {
-    id: "g7",
-    category: "Grounding",
-    label: "Cold reset",
-    message:
-      "If you can, hold something cold for 20–30 seconds to reset your focus.",
-  },
-  {
-    id: "g8",
-    category: "Grounding",
-    label: "Slow exhale",
-    message:
-      "Make your exhale longer than your inhale. It helps your body calm down.",
-  },
-
-  {
-    id: "p1",
-    category: "Practical",
-    label: "One tiny step",
-    message: "What’s one tiny step you can do in 5 minutes that helps?",
-  },
-  {
-    id: "p2",
-    category: "Practical",
-    label: "Write it out",
-    message:
-      "Try writing what’s stressing you, then circle what you can control.",
-  },
-  {
-    id: "p3",
-    category: "Practical",
-    label: "Basic needs check",
-    message: "Quick check: water, food, fresh air, rest. Any one missing?",
-  },
-  {
-    id: "p4",
-    category: "Practical",
-    label: "Timer method",
-    message:
-      "Set a 10-minute timer and do the easiest part. Stop when it ends.",
-  },
-  {
-    id: "p5",
-    category: "Practical",
-    label: "Ask for help",
-    message:
-      "If possible, ask someone: “Can you help me with one small thing?”",
-  },
-  {
-    id: "p6",
-    category: "Practical",
-    label: "Break it down",
-    message: "Can you break it into 3 small steps? Just pick step 1 for now.",
-  },
-  {
-    id: "p7",
-    category: "Practical",
-    label: "Take a walk",
-    message: "A 2-minute walk or stretch can shift your mind a little.",
-  },
-  {
-    id: "p8",
-    category: "Practical",
-    label: "Plan next hour",
-    message: "Plan only the next hour, not the whole day. Keep it simple.",
-  },
-
-  {
-    id: "r1",
-    category: "Perspective",
-    label: "This can shift",
-    message:
-      "This feeling is real, but it can shift. It won’t stay the same forever.",
-  },
-  {
-    id: "r2",
-    category: "Perspective",
-    label: "Name the feeling",
-    message: "If you name the feeling, it can lose some power.",
-  },
-  {
-    id: "r3",
-    category: "Perspective",
-    label: "Not a flaw",
-    message: "What you’re facing is heavy. It’s not a character flaw.",
-  },
-  {
-    id: "r4",
-    category: "Perspective",
-    label: "What would you tell a friend?",
-    message: "If a friend posted this, what would you say to them?",
-  },
-  {
-    id: "r5",
-    category: "Perspective",
-    label: "Zoom out gently",
-    message: "What’s one thing that would make this 1% easier?",
-  },
-  {
-    id: "r6",
-    category: "Perspective",
-    label: "Temporary moment",
-    message: "This is a tough moment, not your whole story.",
-  },
-  {
-    id: "r7",
-    category: "Perspective",
-    label: "You’re learning",
-    message: "It’s okay to struggle. You’re learning how to handle real life.",
-  },
-  {
-    id: "r8",
-    category: "Perspective",
-    label: "You’re doing a lot",
-    message: "You’re doing a lot. Give yourself credit for carrying this.",
-  },
-
-  {
-    id: "b1",
-    category: "Boundaries",
-    label: "It’s okay to pause",
-    message:
-      "It’s okay to pause. You don’t have to reply to everything right away.",
-  },
-  {
-    id: "b2",
-    category: "Boundaries",
-    label: "Protect energy",
-    message: "Protect your energy today. One boundary you can set?",
-  },
-  {
-    id: "b3",
-    category: "Boundaries",
-    label: "Step away 2 minutes",
-    message: "If it’s overwhelming, step away for 2 minutes. That’s allowed.",
-  },
-  {
-    id: "b4",
-    category: "Boundaries",
-    label: "Say no kindly",
-    message: "It’s okay to say no kindly. Your limits matter.",
-  },
-  {
-    id: "b5",
-    category: "Boundaries",
-    label: "Less pressure",
-    message:
-      "Try lowering pressure: “I only need to do the minimum right now.”",
-  },
-  {
-    id: "b6",
-    category: "Boundaries",
-    label: "Phone break",
-    message: "If scrolling is making it worse, a short phone break can help.",
-  },
-  {
-    id: "b7",
-    category: "Boundaries",
-    label: "Slow pace",
-    message: "Slow your pace for a moment. Your body needs time to catch up.",
-  },
-  {
-    id: "b8",
-    category: "Boundaries",
-    label: "Choose safe people",
-    message: "Share with people who feel safe. You don’t owe everyone access.",
-  },
-];
-
-function getRepliesForPost(postId: string) {
-  const dayKey = new Date().toISOString().slice(0, 10);
-  const seed = hashStringToInt(`${dayKey}:${postId}`);
-  const shuffled = seededShuffle(SUPPORT_REPLIES, seed);
-
-  const pick = (cat: SupportReply["category"], n: number) =>
-    shuffled.filter((r) => r.category === cat).slice(0, n);
-
-  const base = [
-    ...pick("Empathy", 4),
-    ...pick("Encouragement", 4),
-    ...pick("Grounding", 4),
-    ...pick("Practical", 4),
-    ...pick("Perspective", 4),
-    ...pick("Boundaries", 4),
-  ];
-
-  const extra = shuffled
-    .filter((r) => !base.find((b) => b.id === r.id))
-    .slice(0, 18);
-
-  return seededShuffle([...base, ...extra], seed + 999);
+  return Array.from({ length: 4 }, () => {
+    return chars[Math.floor(Math.random() * chars.length)];
+  }).join("");
 }
 
 export default function Peerchat() {
-  const [view, setView] = useState<"groups" | "feed" | "post">("groups");
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-
-  const [query, setQuery] = useState("");
-
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [showJoin, setShowJoin] = useState(false);
-  const [showCreatePost, setShowCreatePost] = useState(false);
-
-  const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newCategory, setNewCategory] = useState<Group["category"]>("General");
-
-  const [joinCode, setJoinCode] = useState("");
-  const [joinLoading, setJoinLoading] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
+  const [view, setView] = useState<"groups" | "chat">("groups");
+  const [activeGroup, setActiveGroup] = useState<Group | null>(null);
 
   const [groups, setGroups] = useState<Group[]>([]);
-  const [groupsLoading, setGroupsLoading] = useState(false);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [gLoad, setGLoad] = useState(false);
+  const [gErr, setGErr] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [postsLoading, setPostsLoading] = useState(false);
-  const [postsError, setPostsError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [cName, setCName] = useState("");
+  const [cDesc, setCDesc] = useState("");
+  const [cCat, setCCat] = useState("General");
 
-  const [postDraft, setPostDraft] = useState("");
-  const [postLoading, setPostLoading] = useState(false);
-  const [postError, setPostError] = useState<string | null>(null);
+  const [showJoin, setShowJoin] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinLoad, setJoinLoad] = useState(false);
+  const [joinErr, setJoinErr] = useState<string | null>(null);
+
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [mLoad, setMLoad] = useState(false);
+  const [mErr, setMErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sendLoad, setSendLoad] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
+
+  const flatRef = useRef<FlatList>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollErrorCountRef = useRef(0);
+
+  useEffect(() => {
+    loadGroups();
+  }, []);
+
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
+    const t = setTimeout(() => setToast(null), 3000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  const activeGroup = useMemo(() => {
-    if (!activeGroupId) return null;
-    return groups.find((g) => g.id === activeGroupId) ?? null;
-  }, [groups, activeGroupId]);
-
-  const activePost = useMemo(() => {
-    if (!activePostId) return null;
-    return posts.find((p) => p.id === activePostId) ?? null;
-  }, [posts, activePostId]);
-
-  // Load groups
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      setGroupsLoading(true);
-      setGroupsError(null);
-      try {
-        const data = await api<{ groups: any[] }>(routes.groups(), "GET");
-        if (!alive) return;
-        const mapped = (data?.groups ?? [])
-          .filter((g) => g && g.id)
-          .map((g) => normalizeGroup(g));
-        setGroups(mapped);
-      } catch (e: any) {
-        if (!alive) return;
-        setGroupsError(e?.message ?? "Failed to load groups.");
-      } finally {
-        if (!alive) return;
-        setGroupsLoading(false);
-      }
-    })();
     return () => {
-      alive = false;
+      stopPolling();
     };
   }, []);
 
-  const filteredGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return groups;
-    return groups.filter((g) => {
-      return (
-        g.name.toLowerCase().includes(q) ||
-        g.description.toLowerCase().includes(q) ||
-        g.category.toLowerCase().includes(q) ||
-        g.code.toLowerCase().includes(q)
-      );
-    });
-  }, [groups, query]);
+  async function loadGroups() {
+    setGLoad(true);
+    setGErr(null);
 
-  // CRITICAL: posts route is /{groupId}/posts (NOT /groups/{groupId}/posts)
-  async function loadPosts(groupId: string) {
-    setPostsLoading(true);
-    setPostsError(null);
     try {
-      const data = await api<{ posts: any[] }>(routes.posts(groupId), "GET");
-      const mapped = (data?.posts ?? [])
-        .filter((p) => p && p.id)
-        .map((p) => normalizePost(p, groupId));
-      setPosts(mapped);
-    } catch (e: any) {
-      setPosts([]);
-      setPostsError(e?.message ?? "Request failed.");
+      const uid = getUid();
+      const result = await apiFetch<{ groups: any[] }>(
+        `/groups${uid ? `?uid=${encodeURIComponent(uid)}` : ""}`,
+        "GET",
+      );
+
+      setGroups((result.groups ?? []).filter((g) => g?.id).map(normGroup));
+    } catch (err: any) {
+      setGErr(err?.message ?? "Failed to load groups");
     } finally {
-      setPostsLoading(false);
+      setGLoad(false);
     }
   }
 
-  function openGroupFeed(groupId: string) {
-    const g = groups.find((x) => x.id === groupId);
-    if (!g) return;
+  const fetchMessages = useCallback(
+    async (groupId: string, initial = false) => {
+      if (initial) {
+        setMLoad(true);
+        setMErr(null);
+        setMessages([]);
+      }
 
-    if (!g.isMember) {
-      setJoinError(null);
-      setJoinCode(g.code);
-      setShowJoin(true);
-      return;
-    }
+      try {
+        const result = await apiFetch<{ messages: any[] }>(
+          `/${groupId}/messages?limit=60`,
+          "GET",
+        );
 
-    setActiveGroupId(groupId);
-    setActivePostId(null);
-    setView("feed");
-    loadPosts(groupId);
+        const msgs = (result.messages ?? []).map((m) => normMsg(m, groupId));
+        setMessages(msgs);
+        pollErrorCountRef.current = 0;
+
+        if (initial) {
+          setTimeout(() => {
+            flatRef.current?.scrollToEnd({ animated: false });
+          }, 100);
+        }
+      } catch (err: any) {
+        const msg = err?.message ?? "Failed to load messages";
+
+        if (initial) {
+          setMErr(msg);
+        }
+
+        pollErrorCountRef.current += 1;
+
+        if (pollErrorCountRef.current >= 3) {
+          stopPolling();
+          setSendErr("Chat connection stopped. Please retry.");
+        }
+      } finally {
+        if (initial) {
+          setMLoad(false);
+        }
+      }
+    },
+    [],
+  );
+
+  function startPolling(groupId: string) {
+    stopPolling();
+    pollErrorCountRef.current = 0;
+
+    pollRef.current = setInterval(() => {
+      fetchMessages(groupId, false);
+    }, POLL_MS);
   }
 
-  function backFromFeed() {
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  function openChat(group: Group) {
+    setActiveGroup(group);
+    setView("chat");
+    setDraft("");
+    setSendErr(null);
+    setMErr(null);
+    fetchMessages(group.id, true);
+    startPolling(group.id);
+  }
+
+  function backToGroups() {
+    stopPolling();
     setView("groups");
-    setActiveGroupId(null);
-    setActivePostId(null);
-    setPosts([]);
-    setPostsError(null);
-    setPostError(null);
-  }
-
-  function openPost(postId: string) {
-    setActivePostId(postId);
-    setView("post");
-  }
-
-  function backFromPost() {
-    setView("feed");
-    setActivePostId(null);
+    setActiveGroup(null);
+    setMessages([]);
+    setMErr(null);
+    setDraft("");
+    setSendErr(null);
+    loadGroups();
   }
 
   async function createGroup() {
-    const name = newName.trim();
-    const desc = newDesc.trim();
-    if (!name) return;
+    if (!cName.trim()) return;
 
     try {
-      const code = makeJoinCode();
-      const raw = await api<any>(routes.createGroup(), "POST", {
-        name,
-        description: desc || "Peer support space",
-        category: newCategory,
-        code,
+      const uid = getUid();
+
+      const result = await apiFetch<any>("/groups", "POST", {
+        uid,
+        name: cName.trim(),
+        description: cDesc.trim() || "Peer support space",
+        category: cCat,
+        code: makeCode(),
       });
 
-      const returned = raw?.group ? raw.group : raw;
-      const g = normalizeGroup(returned);
-      if (!g.id) throw new Error("Backend did not return a valid group id.");
+      const group = normGroup(result?.group ?? result);
+      if (!group.id) throw new Error("Invalid response from server");
 
-      setGroups((prev) => [g, ...prev]);
+      setGroups((prev) => [group, ...prev]);
 
-      setShowCreateGroup(false);
-      setNewName("");
-      setNewDesc("");
-      setNewCategory("General");
+      setShowCreate(false);
+      setCName("");
+      setCDesc("");
+      setCCat("General");
 
-      setActiveGroupId(g.id);
-      setView("feed");
-      await loadPosts(g.id);
-      setToast("Group created.");
-    } catch (e: any) {
-      setToast(e?.message ?? "Failed to create group.");
+      openChat(group);
+      setToast("Group created!");
+    } catch (err: any) {
+      setToast(err?.message ?? "Failed to create group");
     }
   }
 
-  async function joinGroupByCode(codeRaw: string) {
-    setJoinError(null);
-    setJoinLoading(true);
+  async function joinGroup() {
+    setJoinErr(null);
+    setJoinLoad(true);
 
     try {
-      const normalized = codeRaw.trim().toUpperCase();
-      if (!normalized) throw new Error("Enter a valid code.");
+      const code = joinCode.trim().toUpperCase();
+      if (!code) throw new Error("Enter a join code");
 
-      const raw = await api<any>(routes.join(), "POST", { code: normalized });
+      const uid = getUid();
+      const result = await apiFetch<any>("/join", "POST", { uid, code });
 
-      const groupId = String(raw?.groupId ?? raw?.id ?? "");
-      if (!groupId) throw new Error("Join failed.");
+      const joinedGroup = normGroup(result?.group ?? {});
+      if (!joinedGroup.id) throw new Error("Join failed");
 
-      setGroups((prev) =>
-        prev.map((g) =>
-          g.id === groupId
-            ? { ...g, isMember: true, members: g.members + 1 }
-            : g,
-        ),
-      );
+      setGroups((prev) => {
+        const exists = prev.some((g) => g.id === joinedGroup.id);
+        if (exists) {
+          return prev.map((g) =>
+            g.id === joinedGroup.id ? { ...joinedGroup, isMember: true } : g,
+          );
+        }
+        return [{ ...joinedGroup, isMember: true }, ...prev];
+      });
 
       setShowJoin(false);
       setJoinCode("");
-      setActiveGroupId(groupId);
-      setView("feed");
-      await loadPosts(groupId);
-      setToast("Joined.");
-    } catch (e: any) {
-      setJoinError(e?.message ?? "Join failed.");
+      openChat({ ...joinedGroup, isMember: true });
+      setToast("Joined!");
+    } catch (err: any) {
+      setJoinErr(err?.message ?? "Join failed");
     } finally {
-      setJoinLoading(false);
+      setJoinLoad(false);
     }
   }
 
-  async function submitPost() {
-    if (!activeGroupId) return;
-    const text = postDraft.trim();
-    if (!text) return;
+  async function sendMessage() {
+    const text = draft.trim();
+    if (!text || !activeGroup) return;
 
-    setPostError(null);
-    setPostLoading(true);
-
-    try {
-      // CRITICAL: create post is POST /{groupId}/posts
-      const raw = await api<any>(routes.posts(activeGroupId), "POST", {
-        text,
-        authorName: "You",
-      });
-
-      const returned = raw?.post ? raw.post : raw;
-      const p = normalizePost(returned, activeGroupId);
-      if (!p.id) throw new Error("Backend did not return a valid post id.");
-
-      setPosts((prev) => [p, ...prev]);
-      setPostDraft("");
-      setShowCreatePost(false);
-      setToast("Posted.");
-    } catch (e: any) {
-      setPostError(e?.message ?? "Request failed.");
-    } finally {
-      setPostLoading(false);
-    }
-  }
-
-  async function sendPredefinedReply(replyId: string) {
-    if (!activeGroupId || !activePostId) return;
+    setSendLoad(true);
+    setSendErr(null);
 
     try {
-      // CRITICAL: react is POST /{groupId}/posts/{postId}/react
-      const raw = await api<any>(
-        routes.react(activeGroupId, activePostId),
+      const result = await apiFetch<any>(
+        `/${activeGroup.id}/messages`,
         "POST",
         {
-          replyId,
+          uid: getUid(),
+          text,
         },
       );
 
-      const returned = raw?.post ? raw.post : raw;
-      const updated = normalizePost(returned, activeGroupId);
-      if (!updated.id) throw new Error("Backend did not return updated post.");
+      const msg = normMsg(result?.message ?? result, activeGroup.id);
+      if (!msg.id) throw new Error("Invalid response from server");
 
-      setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-      setToast("Sent support.");
-    } catch (e: any) {
-      setToast(e?.message ?? "Request failed.");
+      setMessages((prev) => [...prev, msg]);
+      setDraft("");
+
+      setTimeout(() => {
+        flatRef.current?.scrollToEnd({ animated: true });
+      }, 80);
+    } catch (err: any) {
+      setSendErr(err?.message ?? "Failed to send");
+    } finally {
+      setSendLoad(false);
     }
   }
 
-  // ------------------ UI: Post Detail ------------------
-  if (view === "post" && activeGroup && activePost) {
-    const repliesToShow = getRepliesForPost(activePost.id);
-    const reactions = activePost.reactions ?? {};
-    const my = new Set(activePost.myReactions ?? []);
+  const filtered = groups.filter((g) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
 
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={backFromPost} style={styles.backBtn}>
-            <ArrowLeft size={20} color={TEXT} />
-          </TouchableOpacity>
-
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>{activeGroup.name}</Text>
-            <View style={styles.headerSubRow}>
-              <Users size={14} color={MUTED} />
-              <Text style={styles.headerSubText}>
-                {activeGroup.members} members
-              </Text>
-              <View style={styles.dot} />
-              <Hash size={14} color={MUTED} />
-              <Text style={styles.headerSubText}>{activeGroup.code}</Text>
-            </View>
-          </View>
-
-          <View style={styles.badge}>
-            <ShieldCheck size={16} color={BRAND_GREEN} />
-            <Text style={styles.badgeText}>Guided replies</Text>
-          </View>
-        </View>
-
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 22 }}>
-          <View style={styles.postCard}>
-            <View style={styles.postTop}>
-              <Text style={styles.postAuthor}>{activePost.authorName}</Text>
-              <Text style={styles.postTime}>
-                {formatTime(activePost.createdAt)}
-              </Text>
-            </View>
-            <Text style={styles.postText}>{activePost.text}</Text>
-          </View>
-
-          <Text style={styles.sectionTitle}>Supportive replies</Text>
-          <Text style={styles.helperText}>
-            Pick one. You’ll see lots of options so it doesn’t feel controlled.
-          </Text>
-
-          <View style={styles.replyGrid}>
-            {repliesToShow.map((r) => {
-              const count = reactions[r.id] ?? 0;
-              const pressed = my.has(r.id);
-
-              return (
-                <TouchableOpacity
-                  key={r.id}
-                  onPress={() => sendPredefinedReply(r.id)}
-                  style={[
-                    styles.replyChip,
-                    pressed && {
-                      borderColor: "#C7D2FE",
-                      backgroundColor: "#EEF2FF",
-                    },
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text
-                      style={[
-                        styles.replyLabel,
-                        pressed && { color: BRAND_PURPLE },
-                      ]}
-                    >
-                      {r.label}
-                    </Text>
-                    <Text style={styles.replyMeta}>{r.category}</Text>
-                  </View>
-
-                  <View style={styles.replyCountPill}>
-                    <Text style={styles.replyCountText}>{count}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <View style={styles.safetyNote}>
-            <Text style={styles.safetyNoteTitle}>Safety note</Text>
-            <Text style={styles.safetyNoteText}>
-              If you feel unsafe or in immediate danger, contact local emergency
-              services or a trusted adult.
-            </Text>
-          </View>
-        </ScrollView>
-
-        {toast ? (
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>{toast}</Text>
-          </View>
-        ) : null}
-      </SafeAreaView>
+      g.name.toLowerCase().includes(q) ||
+      g.description.toLowerCase().includes(q) ||
+      g.category.toLowerCase().includes(q) ||
+      g.code.toLowerCase().includes(q)
     );
-  }
+  });
 
-  // ------------------ UI: Group Feed ------------------
-  if (view === "feed" && activeGroup) {
+  const myGroups = filtered.filter((g) => g.isMember);
+  const otherGroups = filtered.filter((g) => !g.isMember);
+
+  if (view === "chat" && activeGroup) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={backFromFeed} style={styles.backBtn}>
+      <SafeAreaView style={s.safe}>
+        <View style={s.chatHeader}>
+          <TouchableOpacity onPress={backToGroups} style={s.backBtn}>
             <ArrowLeft size={20} color={TEXT} />
           </TouchableOpacity>
 
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>{activeGroup.name}</Text>
-            <View style={styles.headerSubRow}>
-              <Users size={14} color={MUTED} />
-              <Text style={styles.headerSubText}>
-                {activeGroup.members} members
-              </Text>
-              <View style={styles.dot} />
-              <Hash size={14} color={MUTED} />
-              <Text style={styles.headerSubText}>{activeGroup.code}</Text>
+            <Text style={s.chatHeaderTitle} numberOfLines={1}>
+              {activeGroup.name}
+            </Text>
+            <View style={s.chatHeaderMeta}>
+              <Users size={11} color={MUTED} />
+              <Text style={s.chatHeaderSub}>{activeGroup.members} members</Text>
+              <Text style={s.dot}>·</Text>
+              <Hash size={11} color={MUTED} />
+              <Text style={s.chatHeaderSub}>{activeGroup.code}</Text>
             </View>
           </View>
 
-          <TouchableOpacity
-            style={styles.createPostBtn}
-            onPress={() => {
-              setPostError(null);
-              setPostDraft("");
-              setShowCreatePost(true);
-            }}
-          >
-            <Plus size={16} color="#FFFFFF" />
-            <Text style={styles.createPostBtnText}>Post</Text>
-          </TouchableOpacity>
+          <View style={s.modBadge}>
+            <ShieldCheck size={13} color={GREEN} />
+            <Text style={s.modBadgeText}>Moderated</Text>
+          </View>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }}>
-          <View style={styles.feedHeaderRow}>
-            <View style={styles.badge}>
-              <ShieldCheck size={16} color={BRAND_GREEN} />
-              <Text style={styles.badgeText}>Moderated</Text>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+        >
+          {mLoad ? (
+            <View style={s.centerBox}>
+              <ActivityIndicator color={PURPLE} />
+              <Text style={s.centerText}>Loading chat…</Text>
             </View>
-            <View style={styles.badge}>
-              <Sparkles size={16} color={BRAND_PURPLE} />
-              <Text style={styles.badgeText}>Support-first</Text>
-            </View>
-          </View>
-
-          {postsLoading ? (
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="small" color={BRAND_PURPLE} />
-              <Text style={styles.loadingText}>Loading posts…</Text>
-            </View>
-          ) : postsError ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{postsError}</Text>
+          ) : mErr ? (
+            <View style={s.centerBox}>
+              <Text style={s.errText}>{mErr}</Text>
               <TouchableOpacity
-                onPress={() => loadPosts(activeGroup.id)}
-                style={styles.retryBtn}
+                onPress={() => {
+                  setSendErr(null);
+                  setMErr(null);
+                  fetchMessages(activeGroup.id, true);
+                  startPolling(activeGroup.id);
+                }}
               >
-                <Text style={styles.retryBtnText}>Retry</Text>
+                <Text style={s.retryText}>Retry</Text>
               </TouchableOpacity>
             </View>
-          ) : posts.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <MessageCircle size={18} color={MUTED} />
-              <Text style={styles.emptyText}>
-                No posts yet. Create the first check-in.
-              </Text>
-            </View>
           ) : (
-            posts.map((p) => {
-              const totalSupports = Object.values(p.reactions ?? {}).reduce(
-                (a, b) => a + b,
-                0,
-              );
-              return (
-                <TouchableOpacity
-                  key={p.id}
-                  style={styles.postCard}
-                  onPress={() => openPost(p.id)}
-                >
-                  <View style={styles.postTop}>
-                    <Text style={styles.postAuthor}>{p.authorName}</Text>
-                    <Text style={styles.postTime}>
-                      {formatTime(p.createdAt)}
-                    </Text>
-                  </View>
-                  <Text style={styles.postText} numberOfLines={4}>
-                    {p.text}
+            <FlatList
+              ref={flatRef}
+              data={messages}
+              keyExtractor={(m) => m.id}
+              contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
+              ListHeaderComponent={
+                <View style={s.safeNote}>
+                  <ShieldCheck size={13} color={MUTED} />
+                  <Text style={s.safeNoteText}>
+                    All messages are anonymous and AI-moderated. Crisis,
+                    self-harm, violent, abusive, and unsafe content is blocked.
                   </Text>
+                </View>
+              }
+              ListEmptyComponent={
+                <View style={s.centerBox}>
+                  <Text style={s.centerText}>
+                    No messages yet. Start the conversation.
+                  </Text>
+                </View>
+              }
+              renderItem={({ item, index }) => {
+                const prev = messages[index - 1];
+                const showName = !prev || prev.authorName !== item.authorName;
 
-                  <View style={styles.postFooter}>
-                    <Text style={styles.postFooterText}>
-                      Tap to open replies
-                    </Text>
-                    <View style={styles.postFooterPill}>
-                      <Text style={styles.postFooterPillText}>
-                        {totalSupports} supports
+                return (
+                  <View style={s.msgRow}>
+                    <View style={[s.bubble, s.bubbleThem]}>
+                      {showName ? (
+                        <Text style={s.bubbleName}>{item.authorName}</Text>
+                      ) : null}
+                      <Text style={s.bubbleText}>{item.text}</Text>
+                      <Text style={s.bubbleTime}>
+                        {fmtTime(item.createdAt)}
                       </Text>
                     </View>
                   </View>
-                </TouchableOpacity>
-              );
-            })
+                );
+              }}
+            />
           )}
-        </ScrollView>
 
-        {/* Create Post Modal */}
-        <Modal
-          visible={showCreatePost}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowCreatePost(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>New post</Text>
-                <Pressable
-                  onPress={() => setShowCreatePost(false)}
-                  style={styles.modalClose}
-                >
-                  <X size={18} color={TEXT} />
-                </Pressable>
+          <View style={s.inputBar}>
+            {sendErr ? (
+              <View style={s.sendErrBox}>
+                <Text style={s.sendErrText} numberOfLines={3}>
+                  {sendErr}
+                </Text>
               </View>
+            ) : null}
 
-              <Text style={styles.modalLabel}>What’s on your mind?</Text>
+            <View style={s.inputRow}>
               <TextInput
-                value={postDraft}
+                style={s.input}
+                value={draft}
                 onChangeText={(v) => {
-                  setPostError(null);
-                  setPostDraft(v);
+                  setDraft(v);
+                  setSendErr(null);
                 }}
-                placeholder="Share a check-in…"
+                placeholder="Message the group…"
                 placeholderTextColor="#9CA3AF"
-                style={[styles.modalInput, { height: 120 }]}
                 multiline
+                maxLength={800}
               />
-
-              {postError ? (
-                <Text style={styles.modalError}>{postError}</Text>
-              ) : null}
 
               <TouchableOpacity
                 style={[
-                  styles.modalPrimaryBtn,
-                  (!postDraft.trim() || postLoading) && { opacity: 0.6 },
+                  s.sendBtn,
+                  (!draft.trim() || sendLoad) && { opacity: 0.45 },
                 ]}
-                disabled={!postDraft.trim() || postLoading}
-                onPress={submitPost}
+                onPress={sendMessage}
+                disabled={!draft.trim() || sendLoad}
               >
-                {postLoading ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.modalPrimaryBtnText}>Posting…</Text>
-                  </View>
+                {sendLoad ? (
+                  <ActivityIndicator size="small" color={WHITE} />
                 ) : (
-                  <Text style={styles.modalPrimaryBtnText}>Post</Text>
+                  <Send size={17} color={WHITE} />
                 )}
               </TouchableOpacity>
-
-              <Text style={styles.modalFoot}>
-                Posts are moderated before publishing. Replies are predefined to
-                keep the space safe.
-              </Text>
             </View>
           </View>
-        </Modal>
-
-        {toast ? (
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>{toast}</Text>
-          </View>
-        ) : null}
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
 
-  // ------------------ UI: Groups ------------------
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={s.safe}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 28 }}
+        contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
         <LinearGradient
-          colors={[BRAND_GREEN, "#059669"]}
+          colors={[GREEN, "#059669"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.hero}
+          style={s.hero}
         >
-          <View style={styles.heroTop}>
-            <View style={styles.heroIcon}>
-              <Users size={22} color="#FFFFFF" />
+          <View style={s.heroTop}>
+            <View style={s.heroIcon}>
+              <Users size={22} color={WHITE} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.heroTitle}>Peer Groups</Text>
-              <Text style={styles.heroSub}>
-                Post-based support with guided replies.
+              <Text style={s.heroTitle}>Peer Groups</Text>
+              <Text style={s.heroSub}>
+                Anonymous, moderated group chat for students.
               </Text>
             </View>
           </View>
 
-          <View style={styles.heroRow}>
-            <View style={styles.pill}>
-              <Sparkles size={14} color="#FFFFFF" />
-              <Text style={styles.pillText}>Variety of replies</Text>
+          <View style={s.heroPills}>
+            <View style={s.pill}>
+              <Sparkles size={12} color={WHITE} />
+              <Text style={s.pillText}>Anonymous</Text>
             </View>
-            <View style={styles.pill}>
-              <ShieldCheck size={14} color="#FFFFFF" />
-              <Text style={styles.pillText}>Moderated posts</Text>
+            <View style={s.pill}>
+              <ShieldCheck size={12} color={WHITE} />
+              <Text style={s.pillText}>AI Moderated</Text>
             </View>
           </View>
 
-          <View style={styles.heroActions}>
+          <View style={s.heroBtns}>
             <TouchableOpacity
-              style={styles.primaryAction}
-              onPress={() => setShowCreateGroup(true)}
+              style={s.hBtn1}
+              onPress={() => {
+                setCName("");
+                setCDesc("");
+                setCCat("General");
+                setShowCreate(true);
+              }}
             >
-              <Plus size={16} color="#FFFFFF" />
-              <Text style={styles.primaryActionText}>Create group</Text>
+              <Plus size={15} color={WHITE} />
+              <Text style={s.hBtn1Text}>Create group</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.secondaryAction}
-              onPress={() => setShowJoin(true)}
+              style={s.hBtn2}
+              onPress={() => {
+                setJoinCode("");
+                setJoinErr(null);
+                setShowJoin(true);
+              }}
             >
-              <LogIn size={16} color={TEXT} />
-              <Text style={styles.secondaryActionText}>Join with code</Text>
+              <LogIn size={15} color={TEXT} />
+              <Text style={s.hBtn2Text}>Join with code</Text>
             </TouchableOpacity>
           </View>
         </LinearGradient>
 
-        {/* Search */}
-        <View style={styles.searchWrap}>
-          <Search size={18} color={MUTED} />
+        <View style={s.searchRow}>
+          <Search size={16} color={MUTED} />
           <TextInput
+            style={s.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Search groups, categories, codes…"
+            placeholder="Search groups…"
             placeholderTextColor="#9CA3AF"
-            style={styles.searchInput}
           />
         </View>
 
-        {groupsLoading ? (
-          <View style={{ padding: 16 }}>
-            <View style={styles.loadingBox}>
-              <ActivityIndicator size="small" color={BRAND_PURPLE} />
-              <Text style={styles.loadingText}>Loading groups…</Text>
-            </View>
-          </View>
-        ) : groupsError ? (
-          <View style={{ padding: 16 }}>
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{groupsError}</Text>
-            </View>
+        {gLoad ? (
+          <View style={s.centerBox}>
+            <ActivityIndicator color={PURPLE} />
+            <Text style={s.centerText}>Loading groups…</Text>
           </View>
         ) : null}
 
-        {/* My Groups */}
-        <Text style={styles.sectionTitle}>Your groups</Text>
-        <View style={{ paddingHorizontal: 16 }}>
-          {filteredGroups.filter((g) => g.isMember).length === 0 ? (
-            <View style={styles.emptyCard}>
-              <MessageCircle size={18} color={MUTED} />
-              <Text style={styles.emptyText}>
+        {gErr ? (
+          <View style={[s.errBox, { margin: 16 }]}>
+            <Text style={s.errText}>{gErr}</Text>
+            <TouchableOpacity onPress={loadGroups}>
+              <Text style={s.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <Text style={s.sectionLabel}>Your groups</Text>
+        <View style={s.section}>
+          {myGroups.length === 0 ? (
+            <View style={s.emptyCard}>
+              <Text style={s.emptyCardText}>
                 No groups yet. Create one or join with a code.
               </Text>
             </View>
           ) : (
-            filteredGroups
-              .filter((g) => g.isMember)
-              .map((g) => (
-                <TouchableOpacity
-                  key={g.id}
-                  style={styles.groupCard}
-                  onPress={() => openGroupFeed(g.id)}
-                >
-                  <View style={styles.groupCardTop}>
-                    <Text style={styles.groupName}>{g.name}</Text>
-                    <View style={styles.tag}>
-                      <Text style={styles.tagText}>{g.category}</Text>
-                    </View>
+            myGroups.map((g) => (
+              <TouchableOpacity
+                key={g.id}
+                style={s.groupCard}
+                onPress={() => openChat(g)}
+              >
+                <View style={s.groupCardTop}>
+                  <Text style={s.groupName} numberOfLines={1}>
+                    {g.name}
+                  </Text>
+                  <View style={s.catTag}>
+                    <Text style={s.catTagText}>{g.category}</Text>
                   </View>
-                  <Text style={styles.groupDesc}>{g.description}</Text>
-                  <View style={styles.groupMetaRow}>
-                    <Users size={14} color={MUTED} />
-                    <Text style={styles.groupMeta}>{g.members} members</Text>
-                    <View style={styles.dot} />
-                    <Hash size={14} color={MUTED} />
-                    <Text style={styles.groupMeta}>{g.code}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
+                </View>
+
+                <Text style={s.groupDesc} numberOfLines={2}>
+                  {g.description}
+                </Text>
+
+                <View style={s.groupMeta}>
+                  <Users size={11} color={MUTED} />
+                  <Text style={s.metaText}>{g.members} members</Text>
+                  <Text style={s.dot}>·</Text>
+                  <Hash size={11} color={MUTED} />
+                  <Text style={s.metaText}>{g.code}</Text>
+                </View>
+              </TouchableOpacity>
+            ))
           )}
         </View>
 
-        {/* Discover */}
-        <Text style={styles.sectionTitle}>Discover</Text>
-        <View style={{ paddingHorizontal: 16 }}>
-          {filteredGroups
-            .filter((g) => !g.isMember)
-            .map((g) => (
-              <View key={g.id} style={styles.discoverCard}>
+        <Text style={s.sectionLabel}>Discover</Text>
+        <View style={s.section}>
+          {otherGroups.length === 0 ? (
+            <View style={s.emptyCard}>
+              <Text style={s.emptyCardText}>
+                No other groups to discover yet.
+              </Text>
+            </View>
+          ) : (
+            otherGroups.map((g) => (
+              <View
+                key={g.id}
+                style={[
+                  s.groupCard,
+                  { flexDirection: "row", alignItems: "center", gap: 10 },
+                ]}
+              >
                 <View style={{ flex: 1 }}>
-                  <View style={styles.groupCardTop}>
-                    <Text style={styles.groupName}>{g.name}</Text>
+                  <View style={s.groupCardTop}>
+                    <Text style={s.groupName} numberOfLines={1}>
+                      {g.name}
+                    </Text>
                     <View
                       style={[
-                        styles.tag,
-                        { borderColor: "#EDE9FE", backgroundColor: "#F5F3FF" },
+                        s.catTag,
+                        {
+                          borderColor: "#EDE9FE",
+                          backgroundColor: "#F5F3FF",
+                        },
                       ]}
                     >
-                      <Text style={[styles.tagText, { color: BRAND_PURPLE }]}>
+                      <Text style={[s.catTagText, { color: PURPLE }]}>
                         {g.category}
                       </Text>
                     </View>
                   </View>
-                  <Text style={styles.groupDesc}>{g.description}</Text>
-                  <View style={styles.groupMetaRow}>
-                    <Users size={14} color={MUTED} />
-                    <Text style={styles.groupMeta}>{g.members} members</Text>
-                    <View style={styles.dot} />
-                    <Hash size={14} color={MUTED} />
-                    <Text style={styles.groupMeta}>{g.code}</Text>
+
+                  <Text style={s.groupDesc} numberOfLines={2}>
+                    {g.description}
+                  </Text>
+
+                  <View style={s.groupMeta}>
+                    <Users size={11} color={MUTED} />
+                    <Text style={s.metaText}>{g.members}</Text>
+                    <Text style={s.dot}>·</Text>
+                    <Hash size={11} color={MUTED} />
+                    <Text style={s.metaText}>{g.code}</Text>
                   </View>
                 </View>
 
                 <TouchableOpacity
-                  style={styles.joinBtn}
+                  style={s.joinBtn}
                   onPress={() => {
-                    setJoinError(null);
                     setJoinCode(g.code);
+                    setJoinErr(null);
                     setShowJoin(true);
                   }}
                 >
-                  <Text style={styles.joinBtnText}>Join</Text>
+                  <Text style={s.joinBtnText}>Join</Text>
                 </TouchableOpacity>
               </View>
-            ))}
+            ))
+          )}
         </View>
+      </ScrollView>
 
-        {/* Create Group Modal */}
-        <Modal
-          visible={showCreateGroup}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowCreateGroup(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Create a group</Text>
+      <Modal
+        visible={showCreate}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCreate(false)}
+      >
+        <View style={s.overlay}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
+            <View style={s.modal}>
+              <View style={s.modalHdr}>
+                <Text style={s.modalTitle}>Create a group</Text>
                 <Pressable
-                  onPress={() => setShowCreateGroup(false)}
-                  style={styles.modalClose}
+                  onPress={() => setShowCreate(false)}
+                  style={s.closeBtn}
                 >
-                  <X size={18} color={TEXT} />
+                  <X size={17} color={TEXT} />
                 </Pressable>
               </View>
 
-              <Text style={styles.modalLabel}>Group name</Text>
+              <Text style={s.modalLabel}>Group name *</Text>
               <TextInput
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="e.g., Calm After Class"
+                style={s.modalField}
+                value={cName}
+                onChangeText={setCName}
+                placeholder="e.g. Calm After Class"
                 placeholderTextColor="#9CA3AF"
-                style={styles.modalInput}
               />
 
-              <Text style={styles.modalLabel}>Description</Text>
+              <Text style={s.modalLabel}>Description</Text>
               <TextInput
-                value={newDesc}
-                onChangeText={setNewDesc}
-                placeholder="A small space for daily check-ins…"
+                style={[s.modalField, { height: 72, textAlignVertical: "top" }]}
+                value={cDesc}
+                onChangeText={setCDesc}
+                placeholder="What is this group about?"
                 placeholderTextColor="#9CA3AF"
-                style={[styles.modalInput, { height: 84 }]}
                 multiline
               />
 
-              <Text style={styles.modalLabel}>Category</Text>
-              <View style={styles.categoryRow}>
-                {(
-                  ["General", "Anxiety", "Stress", "Study", "Fitness"] as const
-                ).map((c) => {
-                  const active = c === newCategory;
-                  return (
+              <Text style={s.modalLabel}>Category</Text>
+              <View style={s.catRow}>
+                {["General", "Anxiety", "Stress", "Study", "Fitness"].map(
+                  (cat) => (
                     <TouchableOpacity
-                      key={c}
-                      onPress={() => setNewCategory(c)}
-                      style={[
-                        styles.categoryChip,
-                        active && styles.categoryChipActive,
-                      ]}
+                      key={cat}
+                      onPress={() => setCCat(cat)}
+                      style={[s.catChip, cCat === cat && s.catChipOn]}
                     >
                       <Text
-                        style={[
-                          styles.categoryChipText,
-                          active && styles.categoryChipTextActive,
-                        ]}
+                        style={[s.catChipText, cCat === cat && s.catChipTextOn]}
                       >
-                        {c}
+                        {cat}
                       </Text>
                     </TouchableOpacity>
-                  );
-                })}
+                  ),
+                )}
               </View>
 
               <TouchableOpacity
-                style={[
-                  styles.modalPrimaryBtn,
-                  !newName.trim() && { opacity: 0.5 },
-                ]}
-                disabled={!newName.trim()}
+                style={[s.modalBtn, !cName.trim() && { opacity: 0.5 }]}
+                disabled={!cName.trim()}
                 onPress={createGroup}
               >
-                <Text style={styles.modalPrimaryBtnText}>Create</Text>
+                <Text style={s.modalBtnText}>Create</Text>
               </TouchableOpacity>
 
-              <Text style={styles.modalFoot}>
-                We’ll generate a join code automatically. You can share it with
-                your friends.
+              <Text style={s.hint}>
+                A short join code is generated automatically.
               </Text>
             </View>
-          </View>
-        </Modal>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
 
-        {/* Join Modal */}
-        <Modal
-          visible={showJoin}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowJoin(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Join with code</Text>
-                <Pressable
-                  onPress={() => setShowJoin(false)}
-                  style={styles.modalClose}
-                >
-                  <X size={18} color={TEXT} />
-                </Pressable>
-              </View>
-
-              <Text style={styles.modalLabel}>Enter group code</Text>
-              <TextInput
-                value={joinCode}
-                onChangeText={(v) => {
-                  setJoinError(null);
-                  setJoinCode(v);
-                }}
-                placeholder="e.g., HS9D"
-                placeholderTextColor="#9CA3AF"
-                style={styles.modalInput}
-                autoCapitalize="characters"
-              />
-
-              {joinError ? (
-                <Text style={styles.modalError}>{joinError}</Text>
-              ) : null}
-
-              <TouchableOpacity
-                style={[
-                  styles.modalPrimaryBtn,
-                  joinLoading && { opacity: 0.7 },
-                ]}
-                onPress={() => joinGroupByCode(joinCode)}
-                disabled={joinLoading}
-              >
-                {joinLoading ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                    <Text style={styles.modalPrimaryBtnText}>Joining…</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.modalPrimaryBtnText}>Join</Text>
-                )}
-              </TouchableOpacity>
-
-              <Text style={styles.modalFoot}>
-                Joining adds you to the group and opens the feed.
-              </Text>
+      <Modal
+        visible={showJoin}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowJoin(false)}
+      >
+        <View style={s.overlay}>
+          <View style={s.modal}>
+            <View style={s.modalHdr}>
+              <Text style={s.modalTitle}>Join with code</Text>
+              <Pressable onPress={() => setShowJoin(false)} style={s.closeBtn}>
+                <X size={17} color={TEXT} />
+              </Pressable>
             </View>
-          </View>
-        </Modal>
 
-        {toast ? (
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>{toast}</Text>
+            <Text style={s.modalLabel}>Enter join code</Text>
+            <TextInput
+              style={s.modalField}
+              value={joinCode}
+              onChangeText={(v) => {
+                setJoinCode(v);
+                setJoinErr(null);
+              }}
+              placeholder="e.g. HS9D"
+              placeholderTextColor="#9CA3AF"
+              autoCapitalize="characters"
+              maxLength={6}
+            />
+
+            {joinErr ? <Text style={s.modalErr}>{joinErr}</Text> : null}
+
+            <TouchableOpacity
+              style={[
+                s.modalBtn,
+                (joinLoad || !joinCode.trim()) && { opacity: 0.5 },
+              ]}
+              disabled={joinLoad || !joinCode.trim()}
+              onPress={joinGroup}
+            >
+              {joinLoad ? (
+                <ActivityIndicator color={WHITE} />
+              ) : (
+                <Text style={s.modalBtnText}>Join</Text>
+              )}
+            </TouchableOpacity>
           </View>
-        ) : null}
-      </ScrollView>
+        </View>
+      </Modal>
+
+      {toast ? (
+        <View style={s.toast}>
+          <Text style={s.toastText}>{toast}</Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: PAGE_BG },
+const s = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: BG },
 
-  // Hero
   hero: { margin: 16, borderRadius: 18, padding: 16 },
   heroTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   heroIcon: {
@@ -1442,403 +2042,336 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  heroTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
-  heroSub: { color: "rgba(255,255,255,0.92)", marginTop: 2, fontSize: 13 },
-
-  heroRow: { flexDirection: "row", gap: 10, marginTop: 12, flexWrap: "wrap" },
+  heroTitle: { color: WHITE, fontSize: 20, fontWeight: "800" },
+  heroSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 2 },
+  heroPills: { flexDirection: "row", gap: 8, marginTop: 12 },
   pill: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  pillText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-
-  heroActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  primaryAction: {
-    flex: 1,
-    backgroundColor: "rgba(17,24,39,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.35)",
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  primaryActionText: { color: "#fff", fontWeight: "800" },
-  secondaryAction: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  secondaryActionText: { color: TEXT, fontWeight: "800" },
-
-  // Search
-  searchWrap: {
-    marginHorizontal: 16,
-    backgroundColor: CARD_BG,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  searchInput: { flex: 1, color: TEXT, fontSize: 14 },
-
-  sectionTitle: {
-    marginTop: 18,
-    marginBottom: 10,
-    paddingHorizontal: 16,
-    color: TEXT,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  helperText: {
-    paddingHorizontal: 16,
-    marginTop: -6,
-    marginBottom: 12,
-    color: MUTED,
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 16,
-  },
-
-  // Cards
-  groupCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 14,
-    marginBottom: 10,
-  },
-  discoverCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 14,
-    marginBottom: 10,
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  groupCardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-  groupName: { flex: 1, color: TEXT, fontSize: 15, fontWeight: "800" },
-  groupDesc: { color: MUTED, marginTop: 6, lineHeight: 18, fontSize: 13 },
-  groupMetaRow: {
-    marginTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  groupMeta: { color: MUTED, fontSize: 12, fontWeight: "600" },
-  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#D1D5DB" },
-
-  tag: {
-    borderWidth: 1,
-    borderColor: "#D1FAE5",
-    backgroundColor: "#ECFDF5",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
   },
-  tagText: { color: "#047857", fontWeight: "800", fontSize: 12 },
-
-  joinBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  pillText: { color: WHITE, fontSize: 11, fontWeight: "700" },
+  heroBtns: { flexDirection: "row", gap: 10, marginTop: 14 },
+  hBtn1: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
     borderRadius: 12,
-    backgroundColor: BRAND_PURPLE,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
   },
-  joinBtnText: { color: "#fff", fontWeight: "800" },
+  hBtn1Text: { color: WHITE, fontWeight: "800", fontSize: 13 },
+  hBtn2: {
+    flex: 1,
+    backgroundColor: WHITE,
+    borderRadius: 12,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  hBtn2Text: { color: TEXT, fontWeight: "800", fontSize: 13 },
 
-  emptyCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
+  searchRow: {
+    marginHorizontal: 16,
+    marginBottom: 4,
+    backgroundColor: WHITE,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    padding: 14,
-    marginBottom: 10,
     flexDirection: "row",
-    gap: 10,
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  searchInput: { flex: 1, color: TEXT, fontSize: 14 },
+
+  sectionLabel: {
+    marginTop: 18,
+    marginBottom: 10,
+    paddingHorizontal: 16,
+    fontSize: 14,
+    fontWeight: "800",
+    color: TEXT,
+  },
+  section: { paddingHorizontal: 16 },
+
+  groupCard: {
+    backgroundColor: WHITE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 13,
+    marginBottom: 10,
+  },
+  groupCardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  groupName: { flex: 1, fontSize: 14, fontWeight: "800", color: TEXT },
+  groupDesc: { color: MUTED, fontSize: 12, marginTop: 5, lineHeight: 17 },
+  groupMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+  },
+  metaText: { color: MUTED, fontSize: 11, fontWeight: "600" },
+  dot: { color: MUTED, fontSize: 11 },
+  catTag: {
+    borderWidth: 1,
+    borderColor: "#D1FAE5",
+    backgroundColor: "#ECFDF5",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  catTagText: { color: "#047857", fontSize: 10, fontWeight: "800" },
+  joinBtn: {
+    backgroundColor: PURPLE,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  joinBtnText: { color: WHITE, fontWeight: "800", fontSize: 13 },
+  emptyCard: {
+    backgroundColor: WHITE,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
     alignItems: "center",
   },
-  emptyText: { color: MUTED, fontSize: 13, lineHeight: 18, flex: 1 },
+  emptyCardText: { color: MUTED, fontSize: 13 },
 
-  // Header
-  header: {
-    backgroundColor: CARD_BG,
+  chatHeader: {
+    backgroundColor: WHITE,
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingVertical: 11,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
   backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerTitle: { color: TEXT, fontWeight: "900", fontSize: 16 },
-  headerSubRow: {
+  chatHeaderTitle: { fontSize: 15, fontWeight: "900", color: TEXT },
+  chatHeaderMeta: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 4,
+    gap: 4,
+    marginTop: 2,
   },
-  headerSubText: { color: MUTED, fontSize: 12, fontWeight: "700" },
-
-  badge: {
+  chatHeaderSub: { fontSize: 11, color: MUTED, fontWeight: "600" },
+  modBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
     backgroundColor: "#ECFDF5",
     borderWidth: 1,
     borderColor: "#D1FAE5",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  badgeText: { color: "#047857", fontWeight: "900", fontSize: 12 },
-
-  feedHeaderRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 12,
-  },
-
-  createPostBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: BRAND_PURPLE,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  createPostBtnText: { color: "#fff", fontWeight: "900" },
-
-  // Posts
-  postCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 14,
-    marginBottom: 10,
-  },
-  postTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  postAuthor: { color: TEXT, fontWeight: "900", fontSize: 13 },
-  postTime: { color: "#9CA3AF", fontSize: 12, fontWeight: "800" },
-  postText: {
-    color: TEXT,
-    marginTop: 10,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "600",
-  },
-  postFooter: {
-    marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  postFooterText: { color: MUTED, fontWeight: "800", fontSize: 12 },
-  postFooterPill: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 6,
+    borderRadius: 999,
   },
-  postFooterPillText: { color: MUTED, fontWeight: "900", fontSize: 12 },
+  modBadgeText: { color: "#047857", fontSize: 10, fontWeight: "800" },
 
-  // Replies
-  replyGrid: { paddingHorizontal: 16, gap: 10 },
-  replyChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
+  msgRow: { marginBottom: 4, alignItems: "flex-start" },
+  bubble: {
+    maxWidth: "78%",
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    paddingBottom: 6,
+  },
+  bubbleThem: {
+    backgroundColor: WHITE,
     borderWidth: 1,
     borderColor: BORDER,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderBottomLeftRadius: 4,
   },
-  replyLabel: { color: TEXT, fontWeight: "900", fontSize: 13 },
-  replyMeta: { color: MUTED, fontWeight: "800", fontSize: 11, marginTop: 2 },
-  replyCountPill: {
-    minWidth: 34,
+  bubbleName: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: GREEN,
+    marginBottom: 3,
+  },
+  bubbleText: { fontSize: 14, color: TEXT, lineHeight: 19 },
+  bubbleTime: { fontSize: 10, color: MUTED, marginTop: 4, textAlign: "right" },
+
+  safeNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 7,
+    backgroundColor: "#F0FDF4",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    padding: 11,
+    marginBottom: 12,
+  },
+  safeNoteText: { flex: 1, color: "#166534", fontSize: 11, lineHeight: 16 },
+
+  inputBar: {
+    backgroundColor: WHITE,
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    padding: 10,
+    paddingBottom: Platform.OS === "ios" ? 26 : 10,
+  },
+  sendErrBox: {
+    backgroundColor: "#FEF2F2",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  sendErrText: {
+    color: "#991B1B",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  inputRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    color: TEXT,
+    fontSize: 14,
+    maxHeight: 110,
+    backgroundColor: "#F9FAFB",
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: PURPLE,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "#F3F4F6",
-  },
-  replyCountText: { color: MUTED, fontWeight: "900", fontSize: 12 },
-
-  // Safety note
-  safetyNote: {
-    marginTop: 16,
-    marginHorizontal: 16,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 16,
-    padding: 14,
-  },
-  safetyNoteTitle: { color: TEXT, fontWeight: "900", marginBottom: 6 },
-  safetyNoteText: {
-    color: MUTED,
-    fontWeight: "700",
-    lineHeight: 18,
-    fontSize: 12,
   },
 
-  // Loading/error
-  loadingBox: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 14,
-    flexDirection: "row",
+  centerBox: {
+    flex: 1,
     alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
     gap: 10,
   },
-  loadingText: { color: MUTED, fontWeight: "800", fontSize: 13 },
-  errorBox: {
+  centerText: { color: MUTED, fontSize: 13, textAlign: "center" },
+  errBox: {
     backgroundColor: "#FEF2F2",
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#FECACA",
     padding: 14,
-    gap: 10,
+    gap: 6,
   },
-  errorText: { color: "#991B1B", fontWeight: "800" },
-  retryBtn: {
-    alignSelf: "flex-start",
-    backgroundColor: "#991B1B",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  errText: { color: "#991B1B", fontWeight: "700", fontSize: 13 },
+  retryText: {
+    color: "#991B1B",
+    fontWeight: "900",
+    textDecorationLine: "underline",
+    fontSize: 13,
   },
-  retryBtnText: { color: "#fff", fontWeight: "900" },
 
-  // Modal
-  modalOverlay: {
+  overlay: {
     flex: 1,
-    backgroundColor: "rgba(17,24,39,0.35)",
-    alignItems: "center",
+    backgroundColor: "rgba(17,24,39,0.45)",
     justifyContent: "center",
     padding: 16,
   },
-  modalCard: {
-    width: "100%",
-    maxWidth: 520,
-    backgroundColor: CARD_BG,
+  modal: {
+    backgroundColor: WHITE,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: BORDER,
-    padding: 14,
+    padding: 16,
   },
-  modalHeader: {
+  modalHdr: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 2,
   },
-  modalTitle: { color: TEXT, fontWeight: "900", fontSize: 16 },
-  modalClose: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  modalTitle: { fontSize: 16, fontWeight: "900", color: TEXT },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
   },
   modalLabel: {
-    marginTop: 12,
-    marginBottom: 6,
-    color: TEXT,
+    fontSize: 12,
     fontWeight: "800",
-    fontSize: 13,
+    color: TEXT,
+    marginTop: 12,
+    marginBottom: 5,
   },
-  modalInput: {
+  modalField: {
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: "#F9FAFB",
-    borderRadius: 12,
+    borderRadius: 11,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: TEXT,
+    fontSize: 14,
   },
-  modalPrimaryBtn: {
-    marginTop: 14,
-    backgroundColor: BRAND_GREEN,
+  modalBtn: {
+    backgroundColor: GREEN,
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: 13,
     alignItems: "center",
-    justifyContent: "center",
+    marginTop: 14,
   },
-  modalPrimaryBtnText: { color: "#fff", fontWeight: "900" },
-  modalFoot: { marginTop: 10, color: MUTED, fontSize: 12, lineHeight: 16 },
-  modalError: {
-    marginTop: 8,
-    color: "#B91C1C",
-    fontWeight: "700",
-    fontSize: 12,
-  },
+  modalBtnText: { color: WHITE, fontWeight: "900", fontSize: 14 },
+  modalErr: { color: RED, fontSize: 12, fontWeight: "700", marginTop: 8 },
+  hint: { color: MUTED, fontSize: 11, marginTop: 8, lineHeight: 15 },
 
-  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
-  categoryChip: {
+  catRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 4 },
+  catChip: {
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: "#F9FAFB",
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
   },
-  categoryChipActive: { borderColor: "#D1FAE5", backgroundColor: "#ECFDF5" },
-  categoryChipText: { color: MUTED, fontWeight: "800", fontSize: 12 },
-  categoryChipTextActive: { color: "#047857" },
+  catChipOn: { borderColor: "#D1FAE5", backgroundColor: "#ECFDF5" },
+  catChipText: { color: MUTED, fontSize: 12, fontWeight: "700" },
+  catChipTextOn: { color: "#047857" },
 
-  // Toast
   toast: {
     position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: Platform.OS === "ios" ? 20 : 14,
-    backgroundColor: "rgba(17,24,39,0.92)",
-    borderRadius: 14,
+    bottom: 20,
+    left: 16,
+    right: 16,
+    backgroundColor: "rgba(17,24,39,0.9)",
+    borderRadius: 12,
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     alignItems: "center",
   },
-  toastText: { color: "#fff", fontWeight: "900" },
+  toastText: { color: WHITE, fontWeight: "800", fontSize: 13 },
 });

@@ -20,6 +20,7 @@ export const ENDPOINTS = {
   insights: `${API_BASE_URL}/insights`,
   chat: `${API_BASE_URL}/chat`,
   doctors: `${API_BASE_URL}/doctors`,
+  analytics: `${API_BASE_URL}/analytics`,
   fitbit: `${API_BASE_URL2}/fitbit`,
   fitbitProxy: `${API_BASE_URL2}/fitbit-proxy`,
   onboardingSleep: `${API_BASE_URL3}/onboarding/sleep`,

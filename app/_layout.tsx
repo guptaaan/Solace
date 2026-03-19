@@ -6,13 +6,15 @@ import { StatusBar } from "expo-status-bar";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, AppState, AppStateStatus, View } from "react-native";
 
 export default function RootLayout() {
   useFrameworkReady();
 
   const router = useRouter();
   const segments = useSegments();
+  const appSessionStart = useRef<number | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const [authReady, setAuthReady] = useState(false);
   const [user, setUser] = useState<any>(null);
