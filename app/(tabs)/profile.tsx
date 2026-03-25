@@ -1,10 +1,8 @@
 import { useRouter } from "expo-router";
 import {
-  Bell,
   ExternalLink,
   HelpCircle,
   LogOut,
-  Settings,
   Shield,
   User,
 } from "lucide-react-native";
@@ -33,9 +31,12 @@ import { signOut as fbSignOut, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 type UserProfile = {
-  name: string;
+  name?: string;
+  fullName?: string;
   age?: number | null;
   weight?: number | null;
+  height?: number | null;
+  gender?: string | null;
 };
 
 export default function ProfileScreen() {
@@ -66,7 +67,7 @@ export default function ProfileScreen() {
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         const data = snap.exists() ? (snap.data() as UserProfile) : null;
-        setProfileName(data?.name ?? null);
+        setProfileName(data?.name ?? data?.fullName ?? null);
       } catch {
         setProfileName(null);
       }
@@ -176,25 +177,24 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/personal-information")}
+          >
             <View style={styles.menuIcon}>
               <User size={20} color="#374151" />
             </View>
             <Text style={styles.menuText}>Personal Information</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Bell size={20} color="#374151" />
-            </View>
-            <Text style={styles.menuText}>Notifications</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/terms-and-conditions" as any)}
+          >
             <View style={styles.menuIcon}>
               <Shield size={20} color="#374151" />
             </View>
-            <Text style={styles.menuText}>Privacy & Security</Text>
+            <Text style={styles.menuText}>Terms & Conditions</Text>
           </TouchableOpacity>
         </View>
 
@@ -260,18 +260,14 @@ export default function ProfileScreen() {
             <Text style={styles.menuText}>Find Clinicians</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => router.push("/help-support" as any)}
+          >
             <View style={styles.menuIcon}>
               <HelpCircle size={20} color="#374151" />
             </View>
             <Text style={styles.menuText}>Help & Support</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={styles.menuIcon}>
-              <Settings size={20} color="#374151" />
-            </View>
-            <Text style={styles.menuText}>App Settings</Text>
           </TouchableOpacity>
         </View>
 

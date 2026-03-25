@@ -1,4 +1,7 @@
+import ProviderMap from "@/components/ProviderMap";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
+import { ArrowLeft } from "lucide-react-native";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,7 +16,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import ProviderMap from "../components/ProviderMap";
 
 type Provider = {
   id: string;
@@ -250,6 +252,8 @@ function ProviderCard({
 }
 
 export default function FindClinicians() {
+  const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -328,6 +332,15 @@ export default function FindClinicians() {
   return (
     <View style={styles.page}>
       <View style={styles.container}>
+        <View style={styles.topNav}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
+            <ArrowLeft size={20} color="#111827" />
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.header}>
           <Text style={styles.title}>Find Care</Text>
 
@@ -537,6 +550,18 @@ const styles = StyleSheet.create({
     maxWidth: Platform.OS === "web" ? 980 : undefined,
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
+
+  topNav: {
+    marginBottom: 10,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   header: {
     flexDirection: "row",

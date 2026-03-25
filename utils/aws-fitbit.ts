@@ -1,15 +1,16 @@
-import { ENDPOINTS } from '@/constants/aws-api';
-import { WellnessData } from './fitbit-api';
+import { ENDPOINTS } from "@/constants/aws-api";
+import { trackEvent } from "@/lib/analytics";
+import { WellnessData } from "./fitbit-api";
 
 export async function syncFitbitDataToAWS(
   userId: string,
-  wellnessData: WellnessData[]
+  wellnessData: WellnessData[],
 ): Promise<{ ok: true; status: number; body: any }> {
   try {
     const response = await fetch(ENDPOINTS.fitbit, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         userId,
@@ -22,26 +23,40 @@ export async function syncFitbitDataToAWS(
       const error = await response.text();
       throw new Error(`Failed to sync Fitbit data: ${error}`);
     }
+
     const text = await response.text();
     let body: any = null;
+
     try {
       body = text ? JSON.parse(text) : null;
     } catch {
       body = text;
     }
-    return { ok: true, status: response.status, body };
+
+    await trackEvent("fitbit_sync", {
+      screen: "fitbit_sync",
+      records: Array.isArray(wellnessData) ? wellnessData.length : 0,
+    });
+
+    return {
+      ok: true,
+      status: response.status,
+      body,
+    };
   } catch (error) {
-    console.error('Error syncing Fitbit data to AWS:', error);
+    console.error("Error syncing Fitbit data to AWS:", error);
     throw error;
   }
 }
 
-export async function getFitbitDataFromAWS(userId: string): Promise<WellnessData[]> {
+export async function getFitbitDataFromAWS(
+  userId: string,
+): Promise<WellnessData[]> {
   try {
     const response = await fetch(`${ENDPOINTS.fitbit}?userId=${userId}`, {
-      method: 'GET',
+      method: "GET",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
     });
 
@@ -53,7 +68,7 @@ export async function getFitbitDataFromAWS(userId: string): Promise<WellnessData
     const data = await response.json();
     return data.wellnessData || [];
   } catch (error) {
-    console.error('Error fetching Fitbit data from AWS:', error);
+    console.error("Error fetching Fitbit data from AWS:", error);
     throw error;
   }
 }
