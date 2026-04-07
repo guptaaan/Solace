@@ -1,4 +1,5 @@
 import { ENDPOINTS } from "@/constants/aws-api";
+import { auth } from "@/constants/firebase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Speech from "expo-speech";
@@ -137,8 +138,14 @@ export default function MoodScreen() {
       }
     };
 
+    const firebaseUid = auth.currentUser?.uid;
+    if (!firebaseUid) {
+      Alert.alert("Error", "You must be logged in to submit your mood.");
+      return;
+    }
+
     const payload = {
-      userId: "test-user", // Later replace with Cognito ID
+      userId: firebaseUid,
       date: new Date().toISOString().split("T")[0],
       mood,
       notes: null,
