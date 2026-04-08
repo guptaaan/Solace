@@ -1,4 +1,3 @@
-// // app/(auth)/index.tsx
 // import { useRouter } from "expo-router";
 // import { useEffect, useRef, useState } from "react";
 // import {
@@ -19,7 +18,7 @@
 //   signOut,
 //   updateProfile,
 // } from "firebase/auth";
-// import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+// import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 // type Mode = "signin" | "signup";
 // const { width } = Dimensions.get("window");
@@ -95,39 +94,16 @@
 
 //     setLoading(true);
 //     try {
-//       // ── SIGN IN ──────────────────────────────────────────────────────────
 //       if (mode === "signin") {
-//         const res = await signInWithEmailAndPassword(
-//           auth,
-//           email.trim(),
-//           password,
-//         );
-
-//         // Check onboarding status — but don't block sign-in if Firestore is slow
-//         try {
-//           const snap = await Promise.race([
-//             getDoc(doc(db, "users", res.user.uid)),
-//             new Promise<null>((resolve) =>
-//               setTimeout(() => resolve(null), 4000),
-//             ),
-//           ]);
-
-//           if (snap && "exists" in snap && snap.exists()) {
-//             const data = snap.data();
-//             if (data?.onboardingComplete === false) {
-//               router.replace("/(auth)/sleep-onboarding" as any);
-//               return;
-//             }
-//           }
-//         } catch {
-//           // Firestore check failed — safe to continue to profile
-//         }
-
-//         router.replace("/(tabs)/profile" as any);
+//         // Just authenticate — _layout.tsx onAuthStateChanged handles ALL routing.
+//         // Never call router.replace here; doing so races with the layout listener
+//         // and is the root cause of the "redirected back to sign-in" bug.
+//         await signInWithEmailAndPassword(auth, email.trim(), password);
+//         // Keep spinner showing until the layout navigates away from this screen.
 //         return;
 //       }
 
-//       // ── SIGN UP ──────────────────────────────────────────────────────────
+//       // ── Sign up ──────────────────────────────────────────────────────────
 //       const trimmedName = name.trim();
 //       if (!trimmedName) {
 //         setError("Please enter your name to sign up.");
@@ -137,7 +113,6 @@
 
 //       const parsedAge = age.trim() ? Number(age.trim()) : null;
 //       const parsedWeight = weight.trim() ? Number(weight.trim()) : null;
-
 //       if (parsedAge !== null && Number.isNaN(parsedAge)) {
 //         setError("Age must be a number.");
 //         setLoading(false);
@@ -149,19 +124,16 @@
 //         return;
 //       }
 
-//       // 1. Create the Firebase Auth user
 //       const cred = await createUserWithEmailAndPassword(
 //         auth,
 //         email.trim(),
 //         password,
 //       );
-
-//       // 2. Update display name
 //       await updateProfile(cred.user, { displayName: trimmedName });
 
-//       // 3. Write Firestore doc — fire and don't await (avoid timeout blocking navigation)
-//       //    We navigate immediately; onboarding screen will still find onboardingComplete: false
-//       //    even if the write hasn't finished yet because we route directly there.
+//       // Fire-and-forget Firestore write.
+//       // The layout's onAuthStateChanged fires, reads onboardingComplete: false,
+//       // and routes to sleep-onboarding. No router.replace needed here.
 //       setDoc(
 //         doc(db, "users", cred.user.uid),
 //         {
@@ -172,16 +144,11 @@
 //           onboardingComplete: false,
 //         },
 //         { merge: true },
-//       ).catch(() => {
-//         // Non-blocking — layout will still route correctly
-//       });
+//       ).catch(() => {});
 
-//       // 4. Go straight to onboarding — don't wait for Firestore
-//       router.replace("/(auth)/sleep-onboarding" as any);
+//       // Keep spinner until layout navigates us away.
 //     } catch (e: any) {
 //       const msg = e?.message ?? "";
-
-//       // Make Firebase errors friendlier
 //       if (msg.includes("email-already-in-use")) {
 //         setError("An account with this email already exists. Try signing in.");
 //       } else if (
@@ -197,7 +164,7 @@
 //           msg || (mode === "signin" ? "Sign in failed." : "Sign up failed."),
 //         );
 //       }
-//     } finally {
+//       // Only clear loading on error — success keeps spinner until layout navigates away
 //       setLoading(false);
 //     }
 //   };
@@ -283,7 +250,6 @@
 //               Sign in
 //             </Text>
 //           </TouchableOpacity>
-
 //           <TouchableOpacity
 //             style={[styles.toggleBtn, mode === "signup" && styles.toggleActive]}
 //             onPress={() => {
@@ -348,7 +314,6 @@
 //           keyboardType="email-address"
 //           editable={!loading}
 //         />
-
 //         <TextInput
 //           placeholder="Password"
 //           placeholderTextColor="#9CA3AF"
@@ -501,8 +466,16 @@
 //   },
 // });
 // app/(auth)/index.tsx
-// app/(auth)/index.tsx
+import { markNewSignup } from "@/app/_layout";
+import { auth, db } from "@/constants/firebase";
 import { useRouter } from "expo-router";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from "firebase/auth";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -514,15 +487,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-import { auth, db } from "@/constants/firebase";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-} from "firebase/auth";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 type Mode = "signin" | "signup";
 const { width } = Dimensions.get("window");
@@ -598,16 +562,15 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
+      // ── SIGN IN ──────────────────────────────────────────────────────────
       if (mode === "signin") {
-        // Just authenticate — _layout.tsx onAuthStateChanged handles ALL routing.
-        // Never call router.replace here; doing so races with the layout listener
-        // and is the root cause of the "redirected back to sign-in" bug.
+        // Layout's onAuthStateChanged handles all routing after this.
         await signInWithEmailAndPassword(auth, email.trim(), password);
-        // Keep spinner showing until the layout navigates away from this screen.
+        // Keep spinner until layout navigates away.
         return;
       }
 
-      // ── Sign up ──────────────────────────────────────────────────────────
+      // ── SIGN UP ──────────────────────────────────────────────────────────
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError("Please enter your name to sign up.");
@@ -628,6 +591,11 @@ export default function AuthScreen() {
         return;
       }
 
+      // ⚑ Tell the layout this is a new signup BEFORE Firebase creates the
+      //   account. onAuthStateChanged fires synchronously after account
+      //   creation, so the flag must be set first to avoid the race.
+      markNewSignup();
+
       const cred = await createUserWithEmailAndPassword(
         auth,
         email.trim(),
@@ -635,9 +603,7 @@ export default function AuthScreen() {
       );
       await updateProfile(cred.user, { displayName: trimmedName });
 
-      // Fire-and-forget Firestore write.
-      // The layout's onAuthStateChanged fires, reads onboardingComplete: false,
-      // and routes to sleep-onboarding. No router.replace needed here.
+      // Write Firestore in background — layout already routed to onboarding.
       setDoc(
         doc(db, "users", cred.user.uid),
         {
@@ -650,8 +616,12 @@ export default function AuthScreen() {
         { merge: true },
       ).catch(() => {});
 
-      // Keep spinner until layout navigates us away.
+      // Layout handles routing — keep spinner until navigation happens.
     } catch (e: any) {
+      // If signup failed after we set the flag, clear it so next attempt works.
+      const { clearNewSignup } = require("@/app/_layout");
+      clearNewSignup();
+
       const msg = e?.message ?? "";
       if (msg.includes("email-already-in-use")) {
         setError("An account with this email already exists. Try signing in.");
@@ -668,7 +638,6 @@ export default function AuthScreen() {
           msg || (mode === "signin" ? "Sign in failed." : "Sign up failed."),
         );
       }
-      // Only clear loading on error — success keeps spinner until layout navigates away
       setLoading(false);
     }
   };
