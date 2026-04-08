@@ -1,3 +1,4 @@
+//tabslayout
 import { Tabs } from "expo-router";
 import { Activity, Heart, MessageCircle, User } from "lucide-react-native";
 

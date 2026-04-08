@@ -501,6 +501,7 @@
 //   },
 // });
 // app/(auth)/index.tsx
+// app/(auth)/index.tsx
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -517,12 +518,11 @@ import {
 import { auth, db } from "@/constants/firebase";
 import {
   createUserWithEmailAndPassword,
-  onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 type Mode = "signin" | "signup";
 const { width } = Dimensions.get("window");
@@ -536,49 +536,12 @@ export default function AuthScreen() {
   const [age, setAge] = useState("");
   const [weight, setWeight] = useState("");
   const [loading, setLoading] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
-
-  // ── On mount: if Firebase already has a session (e.g. after Fitbit OAuth
-  //    redirect lands back here), skip straight to the correct screen.
-  //    This is what caused the "sign in twice" bug — the auth index was
-  //    mounting fresh after the OAuth redirect even though the user was
-  //    already authenticated.
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setCheckingSession(false);
-        return;
-      }
-
-      // User already signed in — figure out where to send them
-      try {
-        const snap = await Promise.race([
-          getDoc(doc(db, "users", user.uid)),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
-        ]);
-
-        if (snap && "exists" in snap && snap.exists()) {
-          const data = snap.data();
-          if (data?.onboardingComplete === false) {
-            router.replace("/(auth)/sleep-onboarding" as any);
-            return;
-          }
-        }
-      } catch {
-        // Firestore unavailable — go to profile, which handles its own state
-      }
-
-      router.replace("/(tabs)/profile" as any);
-    });
-
-    return unsub; // unsubscribes the listener on unmount
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     Animated.parallel([
@@ -635,24 +598,16 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      // ── SIGN IN ───────────────────────────────────────────────────────────
       if (mode === "signin") {
-        const res = await signInWithEmailAndPassword(
-          auth,
-          email.trim(),
-          password,
-        );
-
-        // onAuthStateChanged above will fire and handle routing automatically.
-        // We don't need to manually call router.replace here — doing so AND
-        // letting onAuthStateChanged also route is what caused the double-login.
-        // Just let the listener do its job.
-        // (setLoading(false) in finally is enough)
-        void res; // suppress unused-var warning
+        // Just authenticate — _layout.tsx onAuthStateChanged handles ALL routing.
+        // Never call router.replace here; doing so races with the layout listener
+        // and is the root cause of the "redirected back to sign-in" bug.
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+        // Keep spinner showing until the layout navigates away from this screen.
         return;
       }
 
-      // ── SIGN UP ───────────────────────────────────────────────────────────
+      // ── Sign up ──────────────────────────────────────────────────────────
       const trimmedName = name.trim();
       if (!trimmedName) {
         setError("Please enter your name to sign up.");
@@ -662,7 +617,6 @@ export default function AuthScreen() {
 
       const parsedAge = age.trim() ? Number(age.trim()) : null;
       const parsedWeight = weight.trim() ? Number(weight.trim()) : null;
-
       if (parsedAge !== null && Number.isNaN(parsedAge)) {
         setError("Age must be a number.");
         setLoading(false);
@@ -681,9 +635,9 @@ export default function AuthScreen() {
       );
       await updateProfile(cred.user, { displayName: trimmedName });
 
-      // Fire-and-forget Firestore write — onAuthStateChanged will route to
-      // onboarding. We write onboardingComplete: false so the listener sends
-      // new users to sleep-onboarding correctly.
+      // Fire-and-forget Firestore write.
+      // The layout's onAuthStateChanged fires, reads onboardingComplete: false,
+      // and routes to sleep-onboarding. No router.replace needed here.
       setDoc(
         doc(db, "users", cred.user.uid),
         {
@@ -696,7 +650,7 @@ export default function AuthScreen() {
         { merge: true },
       ).catch(() => {});
 
-      // onAuthStateChanged handles routing — nothing to do here.
+      // Keep spinner until layout navigates us away.
     } catch (e: any) {
       const msg = e?.message ?? "";
       if (msg.includes("email-already-in-use")) {
@@ -714,7 +668,7 @@ export default function AuthScreen() {
           msg || (mode === "signin" ? "Sign in failed." : "Sign up failed."),
         );
       }
-    } finally {
+      // Only clear loading on error — success keeps spinner until layout navigates away
       setLoading(false);
     }
   };
@@ -723,22 +677,6 @@ export default function AuthScreen() {
     inputRange: [0, 1],
     outputRange: [-width, width],
   });
-
-  // Show a blank screen while we check for an existing session —
-  // prevents the login form flashing for already-authenticated users
-  // (including after the Fitbit OAuth redirect).
-  if (checkingSession) {
-    return (
-      <View
-        style={[
-          styles.container,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
-      >
-        <ActivityIndicator size="large" color="#7C3AED" />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
@@ -816,7 +754,6 @@ export default function AuthScreen() {
               Sign in
             </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[styles.toggleBtn, mode === "signup" && styles.toggleActive]}
             onPress={() => {
@@ -881,7 +818,6 @@ export default function AuthScreen() {
           keyboardType="email-address"
           editable={!loading}
         />
-
         <TextInput
           placeholder="Password"
           placeholderTextColor="#9CA3AF"
