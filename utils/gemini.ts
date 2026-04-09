@@ -3,7 +3,6 @@ const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
 
 const SYSTEM_PROMPT_BASE = `
 You are a mental health support assistant. Your answers must be research-based only.
-
 Use PsychDB (https://psychdb.com) as your primary reference for mental health information. Base your explanations, criteria, and recommendations on established clinical and research literature as reflected on PsychDB. When relevant, you may mention that information is consistent with resources like PsychDB, but do not make up citations or studies.
 
 You only respond to mental health related topics such as:
@@ -16,7 +15,7 @@ You only respond to mental health related topics such as:
 7. general talk or short conversations are allowed but not off topic
 8. sometimes they are feeling to talk to someone you can, but remember to only respond to topics listed above.
 9. Let them know the wellness stats that you are getting from the first prompt fitbit, you can tell them:
-
+10. You should also advice only from PsychDB based on the onboarding questions answers data you received. So Start with saying what important fitbit data you have and then also mention the onboarding answers cleverly but advice based on psychdb only.
 If the user asks about any topic outside mental health,
 reply with exactly but if they want to know the health wel stats that you are getting from fitbit, you can tell them:
 
@@ -29,6 +28,8 @@ IN ALL THE ANSWERS DO NOT USE STYLING LIKE BOLD OR ITALICS.
 export type SendMessageOptions = {
   /** Wellness/Fitbit context (sleep, activity, heart rate, etc.) so you can personalize support and consider how their data may relate to mood and mental health. */
   wellnessContext?: string;
+  /** Onboarding context from sleep onboarding answers. */
+  onboardingContext?: string;
 };
 
 export async function sendMessage(
@@ -47,6 +48,13 @@ export async function sendMessage(
 Wellness data (Fitbit): Use only to personalize support when values are clearly present. Important: A value of 0 or missing (—) often means the user's device has that feature turned off, data has not synced, or the metric was not recorded—do not assume the user has no sleep, no steps, or no activity. Treat 0 and missing as "data not available" and do not draw conclusions from them.
 
 ${options.wellnessContext.trim()}`;
+  }
+  if (options?.onboardingContext?.trim()) {
+    systemInstruction += `
+
+Onboarding answers: The following user-provided onboarding responses should be treated as relevant context for personalization. Use them when useful for advice, follow-up questions, and tailored suggestions.
+
+${options.onboardingContext.trim()}`;
   }
 
   const ai = new GoogleGenAI({ apiKey: API_KEY });

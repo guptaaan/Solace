@@ -1,4 +1,8 @@
 import {
+  formatSleepOnboardingForGemini,
+  getSleepOnboardingFromAWS,
+} from '@/lib/awsOnboarding';
+import {
   formatWellnessDataForGemini,
   getActivityGoals,
   getWellnessData,
@@ -20,6 +24,7 @@ export default function ChatScreen() {
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [wellnessContext, setWellnessContext] = useState<string>('');
+  const [onboardingContext, setOnboardingContext] = useState<string>('');
   const scrollViewRef = useRef<ScrollView>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -35,33 +40,50 @@ export default function ChatScreen() {
     return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const loadWellnessContext = useCallback(async () => {
-    try {
-      const connected = await isFitbitConnected();
-      if (!connected) return;
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 14);
-      const endStr = end.toISOString().split('T')[0];
-      const startStr = start.toISOString().split('T')[0];
-      const [data, dailyRes, weeklyRes] = await Promise.all([
-        getWellnessData(startStr, endStr),
-        getActivityGoals('daily'),
-        getActivityGoals('weekly'),
-      ]);
-      const summary = formatWellnessDataForGemini(data, {
-        goalsDaily: dailyRes?.goals,
-        goalsWeekly: weeklyRes?.goals,
-      });
-      setWellnessContext(summary);
-    } catch {
-      setWellnessContext('');
-    }
+  const loadAIContext = useCallback(async () => {
+    const loadWellness = async () => {
+      try {
+        const connected = await isFitbitConnected();
+        if (!connected) {
+          setWellnessContext('');
+          return;
+        }
+        const end = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 14);
+        const endStr = end.toISOString().split('T')[0];
+        const startStr = start.toISOString().split('T')[0];
+        const [data, dailyRes, weeklyRes] = await Promise.all([
+          getWellnessData(startStr, endStr),
+          getActivityGoals('daily'),
+          getActivityGoals('weekly'),
+        ]);
+        const summary = formatWellnessDataForGemini(data, {
+          goalsDaily: dailyRes?.goals,
+          goalsWeekly: weeklyRes?.goals,
+        });
+        setWellnessContext(summary);
+      } catch {
+        setWellnessContext('');
+      }
+    };
+
+    const loadOnboarding = async () => {
+      try {
+        const onboarding = await getSleepOnboardingFromAWS();
+        const summary = formatSleepOnboardingForGemini(onboarding);
+        setOnboardingContext(summary);
+      } catch {
+        setOnboardingContext('');
+      }
+    };
+
+    await Promise.allSettled([loadWellness(), loadOnboarding()]);
   }, []);
 
   useEffect(() => {
-    loadWellnessContext();
-  }, [loadWellnessContext]);
+    loadAIContext();
+  }, [loadAIContext]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -93,6 +115,7 @@ export default function ChatScreen() {
 
       const response = await sendMessage(userMessage.text, chatHistory, {
         wellnessContext: wellnessContext || undefined,
+        onboardingContext: onboardingContext || undefined,
       });
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
