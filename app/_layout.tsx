@@ -1,3 +1,4 @@
+// // app/_layout.tsx
 // import { auth, db } from "@/constants/firebase";
 // import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 // import { Stack, useRouter, useSegments } from "expo-router";
@@ -6,6 +7,18 @@
 // import { doc, getDoc } from "firebase/firestore";
 // import { useEffect, useRef, useState } from "react";
 // import { ActivityIndicator, View } from "react-native";
+
+// // ─── Shared in-memory flag ────────────────────────────────────────────────────
+// // index.tsx sets this to true BEFORE calling createUserWithEmailAndPassword.
+// // The layout reads it when onAuthStateChanged fires for the new user.
+// // This avoids the race where getDoc runs before setDoc finishes writing.
+// let pendingNewSignup = false;
+// export function markNewSignup() {
+//   pendingNewSignup = true;
+// }
+// export function clearNewSignup() {
+//   pendingNewSignup = false;
+// }
 
 // export default function RootLayout() {
 //   useFrameworkReady();
@@ -55,19 +68,26 @@
 //     // ── Only route once per uid ────────────────────────────────────────────
 //     if (lastRoutedUid.current === user.uid) return;
 //     lastRoutedUid.current = user.uid;
-
 //     isRouting.current = true;
 
-//     // Check if this is a brand-new signup that needs onboarding.
-//     // Use a SHORT timeout (1.5s) — if Firestore is slow or offline,
-//     // just go to profile. Don't block sign-in on a Firestore round-trip.
+//     // ── NEW SIGNUP: flag set by index.tsx before account creation ──────────
+//     // Don't touch Firestore at all — the doc may not exist yet.
+//     if (pendingNewSignup) {
+//       clearNewSignup();
+//       router.replace("/(auth)/sleep-onboarding" as any);
+//       setTimeout(() => {
+//         isRouting.current = false;
+//       }, 500);
+//       return;
+//     }
+
+//     // ── RETURNING USER: check Firestore with short timeout ─────────────────
 //     const firestoreTimeout = new Promise<null>((resolve) =>
 //       setTimeout(() => resolve(null), 1500),
 //     );
 
 //     Promise.race([getDoc(doc(db, "users", user.uid)), firestoreTimeout])
 //       .then((snap) => {
-//         // snap is null if Firestore timed out — safe to go to profile
 //         if (snap && "exists" in snap && snap.exists()) {
 //           const data = snap.data();
 //           if (data?.onboardingComplete === false) {
@@ -78,7 +98,6 @@
 //         router.replace("/(tabs)/profile" as any);
 //       })
 //       .catch(() => {
-//         // Firestore error — go straight to profile
 //         router.replace("/(tabs)/profile" as any);
 //       })
 //       .finally(() => {
@@ -111,6 +130,7 @@
 //   );
 // }
 // app/_layout.tsx
+// app/_layout.tsx
 import { auth, db } from "@/constants/firebase";
 import { useFrameworkReady } from "@/hooks/useFrameworkReady";
 import { Stack, useRouter, useSegments } from "expo-router";
@@ -118,12 +138,9 @@ import { StatusBar } from "expo-status-bar";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, AppState, View } from "react-native";
 
 // ─── Shared in-memory flag ────────────────────────────────────────────────────
-// index.tsx sets this to true BEFORE calling createUserWithEmailAndPassword.
-// The layout reads it when onAuthStateChanged fires for the new user.
-// This avoids the race where getDoc runs before setDoc finishes writing.
 let pendingNewSignup = false;
 export function markNewSignup() {
   pendingNewSignup = true;
@@ -144,14 +161,42 @@ export default function RootLayout() {
   const isRouting = useRef(false);
   const lastRoutedUid = useRef<string | null | undefined>(undefined);
 
+  // True while the Fitbit OAuth browser is open
+  const oauthInProgress = useRef(false);
+
+  // ── AppState: set flag when app goes to background while logged in ─────────
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "background" && auth.currentUser) {
+        oauthInProgress.current = true;
+      }
+      if (nextState === "active" && oauthInProgress.current) {
+        // Keep flag true for 3s after returning so Firebase can rehydrate
+        setTimeout(() => {
+          oauthInProgress.current = false;
+        }, 3000);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  // ── Auth state listener ───────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
+      // KEY FIX: if Firebase emits null but auth.currentUser is still
+      // populated (transient during OAuth redirect), ignore it entirely.
+      if (!u && auth.currentUser) return;
+
+      // Also ignore null during known OAuth browser flow
+      if (!u && oauthInProgress.current) return;
+
       setUser(u);
       setAuthReady(true);
     });
     return unsub;
   }, []);
 
+  // ── Routing logic (unchanged from your original) ──────────────────────────
   useEffect(() => {
     if (!authReady) return;
     if (isRouting.current) return;
@@ -182,8 +227,7 @@ export default function RootLayout() {
     lastRoutedUid.current = user.uid;
     isRouting.current = true;
 
-    // ── NEW SIGNUP: flag set by index.tsx before account creation ──────────
-    // Don't touch Firestore at all — the doc may not exist yet.
+    // ── NEW SIGNUP ──────────────────────────────────────────────────────────
     if (pendingNewSignup) {
       clearNewSignup();
       router.replace("/(auth)/sleep-onboarding" as any);
@@ -193,7 +237,7 @@ export default function RootLayout() {
       return;
     }
 
-    // ── RETURNING USER: check Firestore with short timeout ─────────────────
+    // ── RETURNING USER ──────────────────────────────────────────────────────
     const firestoreTimeout = new Promise<null>((resolve) =>
       setTimeout(() => resolve(null), 1500),
     );
